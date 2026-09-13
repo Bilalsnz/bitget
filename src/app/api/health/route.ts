@@ -13,7 +13,7 @@
 
 import { errorResponse, jsonResponse } from '@/lib/api';
 import { aiKeySource, aiModel, hasAiKey } from '@/lib/ai/provider';
-import { hasMarketKey } from '@/lib/market/finnhub';
+import { hasMarketKey, marketKeyStatus } from '@/lib/market/finnhub';
 import { currentSession } from '@/lib/market/session';
 import { SUPPORTED_TICKERS } from '@/lib/assets';
 
@@ -25,6 +25,12 @@ export async function GET(request: Request): Promise<Response> {
     const probe = new URL(request.url).searchParams.get('probe') === '1';
 
     const marketConfigured = hasMarketKey();
+    /**
+     * 'absent' | 'empty' | 'present'. A word, never a value, a length, or a
+     * prefix — but it separates the two failures that both surface as
+     * MISSING_MARKET_KEY and therefore cannot be told apart from the outside.
+     */
+    const keyStatus = marketKeyStatus();
     const aiConfigured = hasAiKey();
 
     const body: Record<string, unknown> = {
@@ -35,6 +41,7 @@ export async function GET(request: Request): Promise<Response> {
       marketData: {
         provider: 'Finnhub',
         configured: marketConfigured,
+        keyStatus,
         // Name of the variable, never its value.
         keyVariable: 'FINNHUB_API_KEY',
       },
@@ -50,7 +57,13 @@ export async function GET(request: Request): Promise<Response> {
 
     if (probe) {
       if (!marketConfigured) {
-        body.probe = { attempted: false, reason: 'FINNHUB_API_KEY is not configured.' };
+        body.probe = {
+          attempted: false,
+          reason:
+            keyStatus === 'absent'
+              ? 'FINNHUB_API_KEY is not present in this runtime environment.'
+              : 'FINNHUB_API_KEY is present but empty or whitespace-only.',
+        };
       } else {
         const { fetchQuote } = await import('@/lib/market/finnhub');
         try {

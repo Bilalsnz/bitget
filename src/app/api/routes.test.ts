@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { stubFetch } from '@/test-support/finnhub-stub';
 import { POST as analyze } from './analyze/route';
+import { GET as health } from './health/route';
 import { GET as quote } from './quote/route';
 
 const originalEnv = { ...process.env };
@@ -193,8 +194,43 @@ describe('POST /api/analyze — market failures', () => {
     const body = await readJson(res);
     const error = body.error as Record<string, unknown>;
     assert.equal(error.code, 'MISSING_MARKET_KEY');
-    // The hint names the variable, never its value.
-    assert.ok(String(error.hint).includes('environment variable'));
+    // The hint points at the diagnostic rather than restating the fix, and
+    // never at the variable's value.
+    assert.ok(String(error.hint).includes('/api/health'));
+    assert.ok(!String(error.hint).includes('test-market-key'));
+  });
+
+  it('distinguishes a rejected key from a missing one', async () => {
+    // The regression this guards: both used to surface as MISSING_MARKET_KEY,
+    // so "your key is wrong" read as "you have not set a key" — and the fix
+    // suggested was the step the operator had already completed.
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch({ marketStatus: 401, marketErrorBody: { error: 'Invalid API key.' } });
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+    const error = (await readJson(res)).error as Record<string, unknown>;
+
+    assert.equal(error.code, 'MARKET_KEY_REJECTED');
+    assert.notEqual(error.code, 'MISSING_MARKET_KEY');
+    // The copy must not send the operator back to a step they already did.
+    assert.ok(!String(error.message).includes('not configured'));
+    assert.ok(!String(error.hint).includes('not configured'));
+  });
+
+  it('treats 403 the same way as 401', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch({ marketStatus: 403 });
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+    assert.equal(((await readJson(res)).error as Record<string, unknown>).code, 'MARKET_KEY_REJECTED');
+  });
+
+  it('keeps an absent key distinct from a rejected one', async () => {
+    delete process.env.FINNHUB_API_KEY;
+    restore = stubFetch();
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+    assert.equal(((await readJson(res)).error as Record<string, unknown>).code, 'MISSING_MARKET_KEY');
   });
 
   it('does not invent a price when the provider rejects the key', async () => {
@@ -233,6 +269,71 @@ describe('error envelope — nothing developer-facing leaks', () => {
     }
     assert.ok(!('detail' in error), 'internal detail must stay server-side');
     assert.ok(!('stack' in error));
+  });
+});
+
+/* -------------------------------------------------------------- GET /health */
+
+/**
+ * The whole point of `keyStatus` is that MISSING_MARKET_KEY cannot distinguish
+ * "the deployment never got the variable" from "the variable arrived empty" —
+ * and the fix for those is different. These tests pin both, plus the case that
+ * matters most in practice: a value that arrived with surrounding whitespace
+ * from a paste must still count as present.
+ */
+describe('GET /api/health — market key diagnostics', () => {
+  async function keyStatusWith(value: string | undefined): Promise<unknown> {
+    if (value === undefined) delete process.env.FINNHUB_API_KEY;
+    else process.env.FINNHUB_API_KEY = value;
+
+    const body = await readJson(await health(new Request('http://localhost/api/health')));
+    return (body.marketData as Record<string, unknown>).keyStatus;
+  }
+
+  it('reports absent when the variable was never set', async () => {
+    assert.equal(await keyStatusWith(undefined), 'absent');
+  });
+
+  it('reports empty when the variable was set to an empty string', async () => {
+    assert.equal(await keyStatusWith(''), 'empty');
+  });
+
+  it('reports empty when the variable is whitespace-only', async () => {
+    assert.equal(await keyStatusWith('   \n\t '), 'empty');
+  });
+
+  it('reports present for a normal value', async () => {
+    assert.equal(await keyStatusWith('abc123'), 'present');
+  });
+
+  it('reports present when a pasted value carries surrounding whitespace', async () => {
+    // The common shape of a value that works: pasted with a trailing newline.
+    assert.equal(await keyStatusWith('  abc123\n'), 'present');
+  });
+
+  it('never reports the value, its length, or a prefix', async () => {
+    process.env.FINNHUB_API_KEY = 'super-secret-value';
+    const raw = JSON.stringify(await readJson(await health(new Request('http://localhost/api/health'))));
+
+    assert.ok(!raw.includes('super-secret-value'));
+    assert.ok(!raw.includes('super'));
+    assert.ok(!raw.includes('21'), 'the length must not be inferable from the response');
+  });
+
+  it('still says configured:false when the key is absent', async () => {
+    delete process.env.FINNHUB_API_KEY;
+    const body = await readJson(await health(new Request('http://localhost/api/health')));
+    assert.equal((body.marketData as Record<string, unknown>).configured, false);
+  });
+
+  it('explains which of the two failures the probe hit', async () => {
+    delete process.env.FINNHUB_API_KEY;
+    const absent = await readJson(await health(new Request('http://localhost/api/health?probe=1')));
+    assert.ok(String((absent.probe as Record<string, unknown>).reason).includes('not present'));
+
+    process.env.FINNHUB_API_KEY = '  ';
+    const empty = await readJson(await health(new Request('http://localhost/api/health?probe=1')));
+    assert.ok(String((empty.probe as Record<string, unknown>).reason).includes('whitespace'));
   });
 });
 

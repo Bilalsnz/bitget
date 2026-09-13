@@ -43,17 +43,45 @@ const DATA_SOURCE = 'Finnhub';
 
 /* ------------------------------------------------------------------- utils */
 
+/**
+ * How the market credential appears to *this running process*.
+ *
+ * A boolean is not enough here. "Never set" and "set to an empty or
+ * whitespace-only value" both stop the app fetching a price, but they have
+ * different causes and different fixes — and they are indistinguishable from
+ * the outside, because both surface as `MISSING_MARKET_KEY`. That ambiguity is
+ * precisely the report an operator files after adding the variable and
+ * redeploying: the app says the key is missing, and gives them no way to tell
+ * which of the two they are looking at.
+ *
+ * Returns a word. Never the value, its length, or any prefix of it.
+ */
+export type MarketKeyStatus = 'absent' | 'empty' | 'present';
+
+export function marketKeyStatus(): MarketKeyStatus {
+  const raw = process.env.FINNHUB_API_KEY;
+  if (raw === undefined || raw === null) return 'absent';
+  return raw.trim() ? 'present' : 'empty';
+}
+
 function apiKey(): string {
   const key = process.env.FINNHUB_API_KEY?.trim();
   if (!key) {
-    throw new AppError('MISSING_MARKET_KEY', 'FINNHUB_API_KEY is not set in this environment.');
+    // Only consulted on the failure path, so the happy path pays nothing.
+    const status = marketKeyStatus();
+    throw new AppError(
+      'MISSING_MARKET_KEY',
+      status === 'absent'
+        ? 'FINNHUB_API_KEY is not present in this process environment.'
+        : 'FINNHUB_API_KEY is present but empty or whitespace-only.',
+    );
   }
   return key;
 }
 
 /** Exposed so the health route can report configuration without leaking values. */
 export function hasMarketKey(): boolean {
-  return Boolean(process.env.FINNHUB_API_KEY?.trim());
+  return marketKeyStatus() === 'present';
 }
 
 async function finnhubGet<T>(path: string, params: Record<string, string>): Promise<T> {
@@ -82,7 +110,16 @@ async function finnhubGet<T>(path: string, params: Record<string, string>): Prom
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new AppError('MISSING_MARKET_KEY', `Finnhub rejected the configured key (HTTP ${response.status}).`);
+    // Present but refused — NOT the same as absent, and it must not be reported
+    // as absent. Both used to raise MISSING_MARKET_KEY, so an operator who had
+    // already set the variable was told to go and set it: a loop with no exit,
+    // because the one action the message suggested was the one they had just
+    // taken. Finnhub's own message ("Invalid API key.") is kept in `detail`,
+    // server-side, and never reaches the browser.
+    throw new AppError(
+      'MARKET_KEY_REJECTED',
+      `Finnhub refused the configured key (HTTP ${response.status}).`,
+    );
   }
   if (response.status === 429) {
     throw new AppError('MARKET_RATE_LIMITED', 'Finnhub returned HTTP 429.');

@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'INVALID_TICKER'
   | 'UNSUPPORTED_TICKER'
   | 'MISSING_MARKET_KEY'
+  | 'MARKET_KEY_REJECTED'
   | 'MARKET_UNAVAILABLE'
   | 'MARKET_RATE_LIMITED'
   | 'MARKET_BAD_RESPONSE'
@@ -43,7 +44,24 @@ const FRIENDLY: Record<ErrorCode, { message: string; hint?: string; status: numb
   },
   MISSING_MARKET_KEY: {
     message: 'Market data is not configured on this deployment.',
-    hint: 'Add the Finnhub API key as a server-side environment variable, then redeploy.',
+    // Points at the diagnostic rather than restating "add the key": the useful
+    // question is never *whether* to add it, it is why a deployment that has it
+    // still cannot see it.
+    hint: 'An operator can see exactly what is missing at /api/health.',
+    status: 503,
+  },
+  /**
+   * Deliberately distinct from MISSING_MARKET_KEY, and it used to share its
+   * code. Collapsing them told the operator to go and configure a key that was
+   * already configured — the single most confusing thing this app could say,
+   * because it sends you back to the step you just completed.
+   *
+   * A rejection means the variable is present and the provider refused it:
+   * revoked, mistyped, inactive, or lacking the right plan.
+   */
+  MARKET_KEY_REJECTED: {
+    message: 'The market data provider refused this deployment’s credentials.',
+    hint: 'The key is present but was not accepted. An operator can check it at /api/health.',
     status: 503,
   },
   MARKET_UNAVAILABLE: {
