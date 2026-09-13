@@ -51,6 +51,12 @@ function userMessage(index = 0): string {
   return messages.find((m) => m.role === 'user')?.content ?? '';
 }
 
+/** The system message of the nth provider request. */
+function systemMessage(index = 0): string {
+  const messages = (sent[index]?.messages ?? []) as Array<{ role: string; content: string }>;
+  return messages.find((m) => m.role === 'system')?.content ?? '';
+}
+
 beforeEach(() => {
   logged = [];
   sent = [];
@@ -184,6 +190,96 @@ describe('runAnalysis — live model', () => {
 
     const result = await runAnalysis(REQUEST, await snapshot());
     assert.equal(result.mode, 'live');
+  });
+});
+
+describe('runAnalysis — the price is never labelled as after-hours', () => {
+  /**
+   * The bug these pin: the model described a correct regular-session price as
+   * an "after-hours print". The number was right and the session was wrong —
+   * which is the more dangerous failure of the two, because a plausible figure
+   * under a wrong label does not look like an error.
+   *
+   * Three layers, each asserted separately, because they fail independently:
+   * the system prompt carries the rule, the data block carries it next to the
+   * numbers it governs, and the final task line restates it.
+   */
+  async function livePrompt() {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+    await runAnalysis(REQUEST, await snapshot());
+  }
+
+  it('bans the wording in the system prompt', async () => {
+    await livePrompt();
+    const system = systemMessage();
+
+    for (const banned of ['after-hours print', 'after-hours price', 'after-hours move', 'post-market']) {
+      assert.ok(system.includes(banned), `system prompt must name the banned phrase "${banned}"`);
+    }
+    assert.ok(system.includes('regular-session'));
+    assert.ok(system.includes('latest available print'));
+  });
+
+  it('still permits stating the limitation honestly', async () => {
+    await livePrompt();
+    const system = systemMessage();
+
+    // The fix must not silence the honest caveat — only the mislabelling.
+    assert.ok(
+      system.includes('cannot') && system.includes('extended-hours trading'),
+      'the prompt must keep allowing the honest limitation statement',
+    );
+  });
+
+  it('puts the rule in the data block beside the prices it governs', async () => {
+    await livePrompt();
+    const prompt = userMessage();
+
+    assert.ok(prompt.includes('REGULAR-SESSION move'));
+    assert.ok(prompt.includes('LATEST AVAILABLE PRINT'));
+    assert.ok(prompt.includes('move versus the previous close'));
+  });
+
+  it('restates it in the final task line', async () => {
+    await livePrompt();
+    const prompt = userMessage();
+
+    assert.ok(
+      prompt.includes('not an after-hours price'),
+      'the last instruction the model reads must carry the constraint',
+    );
+  });
+
+  it('carries the constraint in the schema descriptions', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+    await runAnalysis(REQUEST, await snapshot());
+
+    const schema = (sent[0].response_format as Record<string, unknown>).json_schema as Record<string, unknown>;
+    const properties = (schema.schema as Record<string, unknown>).properties as Record<string, { description: string }>;
+
+    for (const field of ['whatChanged', 'reasons', 'risks']) {
+      assert.ok(
+        properties[field].description.includes('after-hours'),
+        `${field} description must carry the vocabulary constraint`,
+      );
+    }
+  });
+
+  it('drops the constraint entirely if the data plan ever supplies the quote', async () => {
+    // The rule is conditional on the same field the reader sees. If a data
+    // source ever does provide an extended-hours print, the prohibition must
+    // disappear rather than become a false statement of its own.
+    stubWith();
+    const snap = await snapshot();
+    const withExtendedHours = { ...snap, quote: { ...snap.quote, afterHoursAvailable: true } };
+
+    const { buildUserPrompt } = await import('./prompt');
+    const prompt = buildUserPrompt(REQUEST, withExtendedHours);
+
+    assert.ok(!prompt.includes('REGULAR-SESSION move'));
+    assert.ok(!prompt.includes('not an after-hours price'));
   });
 });
 

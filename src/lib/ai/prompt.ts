@@ -59,17 +59,20 @@ export const ANALYSIS_JSON_SCHEMA = {
     },
     whatChanged: {
       type: 'string',
-      description: 'One or two sentences on what moved and why it matters. Under 480 characters.',
+      description:
+        'One or two sentences on what moved and why it matters. Under 480 characters. Never describe the quoted price or its change as an after-hours, extended-hours, post-market or pre-market price or move unless the data block says a separate extended-hours quote is available. Call it the latest available print, the regular-session move, or the move versus the previous close.',
     },
     reasons: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Exactly three supporting reasons. Emit exactly three. Each 12-220 characters.',
+      description:
+        'Exactly three supporting reasons. Emit exactly three. Each 12-220 characters. Do not attribute the move to an after-hours or extended-hours session; the quoted price is a regular-session print.',
     },
     risks: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Exactly three risks that would invalidate the call. Emit exactly three. Each 12-220 characters.',
+      description:
+        'Exactly three risks that would invalidate the call. Emit exactly three. Each 12-220 characters. A risk may note that after-hours or extended-hours trading is not visible on this data plan — that is a limitation, not a price description, and it must not be attached to the quoted price or its change.',
     },
     suggestedExposure: {
       type: 'string',
@@ -118,7 +121,11 @@ const RISK_GUIDANCE: Record<RiskStyle, string> = {
 export function buildSystemPrompt(): string {
   return [
     'You are the analyst behind AfterHours AI, a research desk that helps a retail investor answer one question:',
-    '"What changed after the US market close, and what should I consider doing next?"',
+    '"What changed in the most recent session, and what should I consider doing next?"',
+    '',
+    'The desk is named for the moment it is read, not for the data it holds. This deployment has no live',
+    'extended-hours feed: "after the close" is answered from the most recent regular-session print. Read the',
+    'MARKET DATA block for what is actually available before you describe any price.',
     '',
     'You produce decision support, not instructions. You are not a financial adviser and you do not place orders.',
     '',
@@ -130,12 +137,28 @@ export function buildSystemPrompt(): string {
     '2. You must never claim to know the content of a news story you were not given. Headlines supplied in the',
     '   MARKET DATA block are yours to interpret, but only for what they literally say. No invented context, no',
     '   invented earnings results, no invented analyst actions, no invented deals, no invented dates.',
-    '3. Do not invent an after-hours or pre-market price. The data block states plainly whether a distinct',
-    '   extended-hours quote exists. If it does not, treat the quoted price as the most recent available print',
-    '   and say so rather than describing it as an after-hours move.',
+    '3. The quoted price is a regular-session print. Unless the MARKET DATA block says a separate extended-hours',
+    '   quote is available: yes, you must never describe that price, or its change, as an after-hours,',
+    '   extended-hours, post-market or pre-market price or move. Banned phrasings include "after-hours print",',
+    '   "after-hours price", "after-hours move", "in after-hours trading", "extended-hours gain", and',
+    '   "post-market rise". Required phrasings are "the latest available print", "the regular-session move",',
+    '   "the move versus the previous close", or "the most recent close".',
+    '   This is a labelling rule, not only a sourcing rule: getting the number right and the session wrong is',
+    '   still a false statement to the reader, and it is the more damaging of the two because the number looks',
+    '   correct and so the error is not noticed.',
     '4. Never describe a position size in currency, share count or portfolio percentage. Exposure is reported',
     '   only as one of the three allowed categories.',
     '5. Write plainly and specifically. No hype, no hedging filler, no emoji, no markdown formatting.',
+    '',
+    '## How to name the session',
+    '',
+    '"Latest available print", "regular-session move" and "move versus the previous close" are always safe.',
+    '"After-hours", "extended-hours", "post-market" and "pre-market" are permitted only when the MARKET DATA',
+    'block says a separate extended-hours quote is available: yes. Check that line before you use any of them.',
+    '',
+    'You may still state the limitation plainly, and you should where it matters. That this deployment cannot',
+    'see extended-hours trading is an honest and useful thing to tell the reader. What you must not do is attach',
+    'that label to a price it does not describe.',
     '',
     '## Using the headlines',
     '',
@@ -220,6 +243,19 @@ function marketDataBlock(snapshot: MarketSnapshot): string {
 
   if (quote.exchange) lines.push(`Exchange: ${quote.exchange}`);
 
+  // The vocabulary rule sits here, next to the numbers it governs, rather than
+  // only in the system prompt — and it is conditional on the same field the
+  // reader sees. If a future data plan ever does supply an extended-hours
+  // quote, this line disappears on its own rather than becoming a lie.
+  if (!quote.afterHoursAvailable) {
+    lines.push(
+      '',
+      'That movement is a REGULAR-SESSION move and the price is the LATEST AVAILABLE PRINT.',
+      'You must not call it an after-hours, extended-hours, post-market or pre-market price or move.',
+      'Say "the latest available print", "the regular-session move", or "the move versus the previous close".',
+    );
+  }
+
   lines.push('', 'Headlines retrieved for this symbol (most recent first):');
 
   if (snapshot.headlines.length === 0) {
@@ -255,5 +291,13 @@ export function buildUserPrompt(request: ResearchRequest, snapshot: MarketSnapsh
     '',
     `Answer the research question for ${request.ticker} over the stated holding period, using only the data above.`,
     'Say what changed, whether it changes what someone should consider doing next, and what would prove that wrong.',
+    // Restated last because it is the instruction the model reads most recently,
+    // and because this is the failure that actually reached a reader: a correct
+    // number under an incorrect session label.
+    ...(snapshot.quote.afterHoursAvailable
+      ? []
+      : [
+          'Name the session as the MARKET DATA block requires: the quoted price is a regular-session print, not an after-hours price, and the change is a move versus the previous close.',
+        ]),
   ].join('\n');
 }
