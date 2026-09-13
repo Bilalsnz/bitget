@@ -1,0 +1,286 @@
+/**
+ * Tests for the API routes themselves.
+ *
+ * The suites in `lib/` cover the analysis pipeline; these cover the layer the
+ * browser actually talks to — status codes, the error envelope, the
+ * `no-store` header, and the exact JSON shape the research card reads.
+ *
+ * The route handlers are called directly with a real `Request` and return a
+ * real `Response`, so the assertions run against the same objects Next.js would
+ * hand a client. Only the network beneath them is stubbed.
+ *
+ * The recurring theme here is *what must never be in a response body*: the
+ * provider's error text, a key, a stack trace, or developer detail. Those are
+ * asserted negatively on every failure path, because that is the leak that ends
+ * up in a screenshot.
+ */
+
+import assert from 'node:assert/strict';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+
+import { stubFetch } from '@/test-support/finnhub-stub';
+import { POST as analyze } from './analyze/route';
+import { GET as quote } from './quote/route';
+
+const originalEnv = { ...process.env };
+let restore: (() => void) | null = null;
+const originalError = console.error;
+
+/** Build a POST request the way the browser does. */
+function post(body: unknown, raw?: string): Request {
+  return new Request('http://localhost/api/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: raw ?? JSON.stringify(body),
+  });
+}
+
+async function readJson(res: Response): Promise<Record<string, unknown>> {
+  return (await res.json()) as Record<string, unknown>;
+}
+
+beforeEach(() => {
+  console.error = () => {};
+  process.env.FINNHUB_API_KEY = 'test-market-key';
+  // Pin the SDK base URL so the stub matches regardless of ambient config.
+  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+});
+
+afterEach(() => {
+  restore?.();
+  restore = null;
+  console.error = originalError;
+  process.env = { ...originalEnv };
+});
+
+/* ------------------------------------------------------------ POST /analyze */
+
+describe('POST /api/analyze — success', () => {
+  it('returns the full payload the research card renders', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch();
+
+    const res = await analyze(post({ ticker: 'aapl' }));
+
+    assert.equal(res.status, 200);
+    const body = await readJson(res);
+
+    // Request echoed back, normalised.
+    assert.deepEqual(body.request, { ticker: 'AAPL', holdingPeriod: '1m', risk: 'Moderate' });
+
+    // Market numbers come from the data layer...
+    const snapshot = body.snapshot as Record<string, unknown>;
+    assert.equal(snapshot.dataSource, 'Finnhub');
+    assert.equal(snapshot.synthetic, false);
+    assert.equal((snapshot.quote as Record<string, unknown>).price, 190.25);
+
+    // ...judgement comes from the model, and the two are separate fields.
+    assert.equal(body.mode, 'live');
+    assert.equal((body.analysis as Record<string, unknown>).verdict, 'BUY');
+    assert.ok(typeof body.modeReason === 'string' && body.modeReason.length > 0);
+  });
+
+  it('never caches a response carrying live market data', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch();
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+  });
+
+  it('serves every supported instrument through the same path', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch();
+
+    for (const ticker of ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN']) {
+      const res = await analyze(post({ ticker }));
+      assert.equal(res.status, 200, `${ticker} should be served`);
+      const body = await readJson(res);
+      assert.equal((body.request as Record<string, unknown>).ticker, ticker);
+      assert.ok(Array.isArray((body.analysis as Record<string, unknown>).reasons));
+    }
+  });
+
+  it('degrades to demo mode when the model answers with prose', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch({ modelText: 'I cannot help with that.' });
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+
+    // Not an error: the user still gets a complete, labelled card.
+    assert.equal(res.status, 200);
+    const body = await readJson(res);
+    assert.equal(body.mode, 'demo');
+    assert.equal(body.providerLabel, 'Deterministic demo engine');
+  });
+
+  it('still answers when no AI credential is configured', async () => {
+    delete process.env.AI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    restore = stubFetch();
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+
+    assert.equal(res.status, 200);
+    const body = await readJson(res);
+    assert.equal(body.mode, 'demo');
+    assert.ok(String(body.modeReason).includes('No AI credential'));
+  });
+});
+
+describe('POST /api/analyze — rejected requests', () => {
+  beforeEach(() => {
+    restore = stubFetch();
+  });
+
+  it('rejects a well-formed but unsupported ticker', async () => {
+    const res = await analyze(post({ ticker: 'IBM' }));
+
+    assert.equal(res.status, 400);
+    const body = await readJson(res);
+    assert.equal((body.error as Record<string, unknown>).code, 'UNSUPPORTED_TICKER');
+  });
+
+  it('rejects a malformed ticker', async () => {
+    const res = await analyze(post({ ticker: '!!!' }));
+
+    assert.equal(res.status, 400);
+    const body = await readJson(res);
+    assert.equal((body.error as Record<string, unknown>).code, 'INVALID_TICKER');
+  });
+
+  it('rejects an empty ticker', async () => {
+    const res = await analyze(post({ ticker: '   ' }));
+    assert.equal(res.status, 400);
+    assert.equal((await readJson(res)).error !== undefined, true);
+  });
+
+  it('rejects an out-of-range holding period rather than silently defaulting', async () => {
+    const res = await analyze(post({ ticker: 'AAPL', holdingPeriod: '10y' }));
+
+    assert.equal(res.status, 400);
+    const body = await readJson(res);
+    assert.equal((body.error as Record<string, unknown>).code, 'BAD_REQUEST');
+  });
+
+  it('rejects an out-of-range risk style', async () => {
+    const res = await analyze(post({ ticker: 'AAPL', risk: 'YOLO' }));
+    assert.equal(res.status, 400);
+  });
+
+  it('rejects a body that is not JSON', async () => {
+    const res = await analyze(post(null, '{not json'));
+
+    assert.equal(res.status, 400);
+    const body = await readJson(res);
+    assert.equal((body.error as Record<string, unknown>).code, 'BAD_REQUEST');
+  });
+
+  it('never caches an error response either', async () => {
+    const res = await analyze(post({ ticker: 'IBM' }));
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+  });
+});
+
+describe('POST /api/analyze — market failures', () => {
+  it('reports a missing market key as a deployment problem, not a user error', async () => {
+    delete process.env.FINNHUB_API_KEY;
+    restore = stubFetch();
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+
+    assert.equal(res.status, 503);
+    const body = await readJson(res);
+    const error = body.error as Record<string, unknown>;
+    assert.equal(error.code, 'MISSING_MARKET_KEY');
+    // The hint names the variable, never its value.
+    assert.ok(String(error.hint).includes('environment variable'));
+  });
+
+  it('does not invent a price when the provider rejects the key', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch({ marketStatus: 401, marketErrorBody: { error: 'Invalid API key.' } });
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+
+    assert.ok(res.status >= 400, 'a rejected key must not produce a 200');
+    const raw = JSON.stringify(await readJson(res));
+    assert.ok(!raw.includes('190.25'), 'no price may be fabricated on failure');
+    assert.ok(!raw.includes('Invalid API key'), "the provider's message must not reach the browser");
+  });
+
+  it('surfaces a provider outage as a market error, not a crash', async () => {
+    process.env.AI_API_KEY = 'test-ai-key';
+    restore = stubFetch({ marketStatus: 503 });
+
+    const res = await analyze(post({ ticker: 'AAPL' }));
+
+    assert.ok(res.status >= 400);
+    const raw = JSON.stringify(await readJson(res));
+    assert.ok(!raw.includes('test-market-key'), 'the key must never appear in a response');
+    assert.ok(!raw.includes('stack'), 'no stack trace may reach the browser');
+  });
+});
+
+describe('error envelope — nothing developer-facing leaks', () => {
+  it('carries only code, message and an optional hint', async () => {
+    restore = stubFetch();
+    const res = await analyze(post({ ticker: 'IBM' }));
+    const error = (await readJson(res)).error as Record<string, unknown>;
+
+    for (const key of Object.keys(error)) {
+      assert.ok(['code', 'message', 'hint'].includes(key), `unexpected error field: ${key}`);
+    }
+    assert.ok(!('detail' in error), 'internal detail must stay server-side');
+    assert.ok(!('stack' in error));
+  });
+});
+
+/* --------------------------------------------------------------- GET /quote */
+
+describe('GET /api/quote', () => {
+  it('returns a market snapshot on its own', async () => {
+    restore = stubFetch();
+
+    const res = await quote(new Request('http://localhost/api/quote?ticker=TSLA'));
+
+    assert.equal(res.status, 200);
+    const body = await readJson(res);
+    assert.equal(body.dataSource, 'Finnhub');
+    assert.equal((body.quote as Record<string, unknown>).price, 190.25);
+    assert.equal(body.exchangeSession, 'regular');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+  });
+
+  it('always reports that no separate extended-hours quote is available', async () => {
+    restore = stubFetch();
+
+    const res = await quote(new Request('http://localhost/api/quote?ticker=AAPL'));
+    const body = await readJson(res);
+
+    assert.equal((body.quote as Record<string, unknown>).afterHoursAvailable, false);
+  });
+
+  it('rejects an unsupported ticker', async () => {
+    restore = stubFetch();
+
+    const res = await quote(new Request('http://localhost/api/quote?ticker=IBM'));
+    assert.equal(res.status, 400);
+    assert.equal(((await readJson(res)).error as Record<string, unknown>).code, 'UNSUPPORTED_TICKER');
+  });
+
+  it('rejects a request with no ticker at all', async () => {
+    restore = stubFetch();
+
+    const res = await quote(new Request('http://localhost/api/quote'));
+    assert.equal(res.status, 400);
+  });
+
+  it('reports a missing key rather than an empty quote', async () => {
+    delete process.env.FINNHUB_API_KEY;
+    restore = stubFetch();
+
+    const res = await quote(new Request('http://localhost/api/quote?ticker=AAPL'));
+    assert.equal(res.status, 503);
+  });
+});

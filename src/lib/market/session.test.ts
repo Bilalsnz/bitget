@@ -1,0 +1,173 @@
+/**
+ * Tests for US equity session and holiday logic.
+ *
+ * The session classifier is what stops the app describing a regular-session
+ * price as an after-hours move, so it carries more weight than its size
+ * suggests. The holiday cases are the ones that silently rot: a calendar that
+ * is wrong by a day produces an app that confidently mislabels a closed market.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { calendarFor, etParts, isMarketHoliday, movementBasisFor, sessionFor } from './session';
+
+/**
+ * Unix seconds for a wall-clock ET time during EDT (UTC−4).
+ * Note the offset is the *test's* responsibility, not the code's: `sessionFor`
+ * is given an instant and must work out the zone itself.
+ */
+function edt(year: number, month: number, day: number, hour: number, minute = 0): number {
+  return Math.floor(Date.UTC(year, month - 1, day, hour + 4, minute) / 1000);
+}
+
+/** Unix seconds for a wall-clock ET time during EST (UTC−5). */
+function est(year: number, month: number, day: number, hour: number, minute = 0): number {
+  return Math.floor(Date.UTC(year, month - 1, day, hour + 5, minute) / 1000);
+}
+
+describe('etParts', () => {
+  it('converts a summer instant using EDT', () => {
+    const parts = etParts(edt(2026, 9, 14, 10, 30));
+    assert.equal(parts.hour, 10);
+    assert.equal(parts.minute, 30);
+    assert.equal(parts.weekday, 1, '2026-09-14 is a Monday');
+    assert.equal(parts.zoneAbbr, 'EDT');
+  });
+
+  it('converts a winter instant using EST', () => {
+    const parts = etParts(est(2026, 12, 25, 12, 0));
+    assert.equal(parts.hour, 12);
+    assert.equal(parts.zoneAbbr, 'EST');
+  });
+});
+
+describe('sessionFor — regular trading day', () => {
+  // Monday 2026-09-14, an ordinary session with no holiday nearby.
+  it('classifies pre-market', () => {
+    const session = sessionFor(edt(2026, 9, 14, 8, 0));
+    assert.equal(session.phase, 'pre-market');
+    assert.equal(session.extendedHours, true);
+    assert.equal(session.marketOpenNow, false);
+  });
+
+  it('classifies the regular session at the open, midday and the close', () => {
+    for (const [hour, minute] of [
+      [9, 30],
+      [12, 0],
+      [15, 59],
+    ] as const) {
+      const session = sessionFor(edt(2026, 9, 14, hour, minute));
+      assert.equal(session.phase, 'regular', `expected regular at ${hour}:${minute}`);
+      assert.equal(session.marketOpenNow, true);
+    }
+  });
+
+  it('classifies 16:00 exactly as after-hours, not regular', () => {
+    // The close is exclusive: the regular session has ended at 16:00:00.
+    const session = sessionFor(edt(2026, 9, 14, 16, 0));
+    assert.equal(session.phase, 'after-hours');
+    assert.equal(session.marketOpenNow, false);
+  });
+
+  it('classifies after-hours', () => {
+    const session = sessionFor(edt(2026, 9, 14, 17, 30));
+    assert.equal(session.phase, 'after-hours');
+    assert.equal(session.extendedHours, true);
+  });
+
+  it('classifies the overnight gap as closed', () => {
+    assert.equal(sessionFor(edt(2026, 9, 14, 22, 0)).phase, 'closed');
+    assert.equal(sessionFor(edt(2026, 9, 14, 2, 0)).phase, 'closed');
+    assert.equal(sessionFor(edt(2026, 9, 14, 3, 59)).phase, 'closed');
+    assert.equal(sessionFor(edt(2026, 9, 14, 4, 0)).phase, 'pre-market');
+  });
+});
+
+describe('sessionFor — weekends', () => {
+  it('treats Saturday and Sunday as closed at every hour', () => {
+    for (const day of [12, 13]) {
+      for (const hour of [5, 10, 14, 18]) {
+        assert.equal(
+          sessionFor(edt(2026, 9, day, hour)).phase,
+          'closed',
+          `expected closed on day ${day} at ${hour}:00`,
+        );
+      }
+    }
+  });
+});
+
+describe('sessionFor — holidays', () => {
+  it('closes on Good Friday', () => {
+    // Easter Sunday 2026 is 5 April, so Good Friday is 3 April.
+    assert.equal(sessionFor(edt(2026, 4, 3, 12, 0)).phase, 'closed');
+    assert.equal(isMarketHoliday(2026, 4, 3), true);
+  });
+
+  it('closes on Martin Luther King Jr. Day (3rd Monday of January)', () => {
+    assert.equal(sessionFor(est(2026, 1, 19, 12, 0)).phase, 'closed');
+  });
+
+  it('closes on Thanksgiving (4th Thursday of November)', () => {
+    assert.equal(sessionFor(est(2026, 11, 26, 12, 0)).phase, 'closed');
+  });
+
+  it('closes on Christmas Day', () => {
+    assert.equal(sessionFor(est(2026, 12, 25, 12, 0)).phase, 'closed');
+  });
+
+  it('shifts a Saturday Independence Day back to the Friday', () => {
+    // 4 July 2026 falls on a Saturday, so the market closes on Friday the 3rd.
+    assert.equal(sessionFor(edt(2026, 7, 3, 12, 0)).phase, 'closed');
+  });
+
+  it('does not close on an ordinary weekday', () => {
+    assert.equal(sessionFor(edt(2026, 9, 14, 12, 0)).phase, 'regular');
+  });
+});
+
+describe('sessionFor — half days', () => {
+  it('runs a normal session before the early close', () => {
+    // Christmas Eve 2026 is a Thursday and a half day.
+    const session = sessionFor(est(2026, 12, 24, 12, 0));
+    assert.equal(session.phase, 'regular');
+    assert.ok(session.label.includes('half day'));
+  });
+
+  it('ends the regular session at 13:00 ET', () => {
+    assert.equal(sessionFor(est(2026, 12, 24, 12, 59)).phase, 'regular');
+    assert.equal(sessionFor(est(2026, 12, 24, 13, 0)).phase, 'after-hours');
+  });
+
+  it('treats Black Friday as a half day', () => {
+    assert.equal(sessionFor(est(2026, 11, 27, 12, 0)).phase, 'regular');
+    assert.equal(sessionFor(est(2026, 11, 27, 14, 0)).phase, 'after-hours');
+  });
+});
+
+describe('calendarFor', () => {
+  it('is memoised — the same year returns the same object', () => {
+    assert.equal(calendarFor(2026), calendarFor(2026));
+  });
+
+  it('does not leak closures between years', () => {
+    // 4 July 2027 is a Sunday, so it should be observed on Monday the 5th.
+    assert.equal(isMarketHoliday(2027, 7, 5), true);
+    assert.equal(isMarketHoliday(2027, 7, 4), false);
+  });
+});
+
+describe('movementBasisFor', () => {
+  it('never claims an after-hours basis for a closed market', () => {
+    const closed = sessionFor(edt(2026, 9, 14, 22, 0));
+    const basis = movementBasisFor(closed);
+    assert.ok(basis.includes('most recent available print'));
+    assert.ok(!basis.includes('after the 16:00 ET close'));
+  });
+
+  it('states the extended-hours basis when the print is post-close', () => {
+    const afterHours = sessionFor(edt(2026, 9, 14, 17, 0));
+    assert.ok(movementBasisFor(afterHours).includes('after the 16:00 ET close'));
+  });
+});

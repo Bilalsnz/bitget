@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * AfterHours AI — global styles.
+ *
+ * The visual language is "research desk at night": a deep blue-black ground,
+ * two large ambient colour washes so the page never reads as flat grey, and
+ * glass panels that sit on top. Colour is used to *group* and to *rank*, never
+ * as the only carrier of meaning — every verdict and risk level is also a word.
+ */
+
+@layer base {
+  :root {
+    /*
+     * System font stack rather than a downloaded webfont: it renders natively
+     * on Android Chrome (the target device), costs no network round trip, and
+     * keeps the production build independent of Google Fonts being reachable.
+     */
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Anchor jumps and scroll-into-view shouldn't hide content under the header. */
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    @apply bg-ink-950 text-slate-300 antialiased;
+    min-height: 100dvh;
+    /* Two ambient washes — cyan top-left, violet bottom-right. */
+    background-image:
+      radial-gradient(58rem 40rem at 12% -8%, rgba(56, 232, 255, 0.13), transparent 62%),
+      radial-gradient(52rem 38rem at 92% 6%, rgba(168, 85, 247, 0.14), transparent 60%),
+      radial-gradient(46rem 34rem at 50% 108%, rgba(255, 95, 162, 0.09), transparent 62%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    /* The page body itself must never scroll sideways on a phone. */
+    overflow-x: hidden;
+  }
+
+  /* Tap targets: kill the grey flash, keep the ripple-free feel deliberate. */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* One visible focus treatment everywhere, for keyboard and switch users. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-cyan ring-offset-2 ring-offset-ink-950;
+  }
+
+  ::selection {
+    background: rgba(56, 232, 255, 0.28);
+  }
+}
+
+@layer components {
+  /* The base glass panel every section sits in. */
+  .panel {
+    @apply rounded-xl2 border border-white/10 bg-white/[0.035] shadow-glow backdrop-blur-sm;
+  }
+
+  /* A slightly stronger panel for the primary result surfaces. */
+  .panel-raised {
+    @apply rounded-xl2 border border-white/12 bg-white/[0.055] shadow-glow backdrop-blur-md;
+  }
+
+  /* Small uppercase section label used throughout the card. */
+  .label {
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-400;
+  }
+
+  /* Pill used for tickers, sessions and statuses. */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06]
+      px-3 py-1 text-xs font-medium text-slate-200;
+  }
+}
+
+@layer utilities {
+  /* Gradient text used for the wordmark and the verdict headline. */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+  }
+
+  /* Honour the OS "reduce motion" setting — the ambient animations are
+     decorative and must not be the reason someone can't use the page. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
