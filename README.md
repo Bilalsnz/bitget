@@ -75,6 +75,26 @@ is the most recent available print rather than an after-hours quote. It also
 asks `/stock/market-status` (which is free) what session the exchange reports
 now, and says so when that disagrees with the quote.
 
+**Regular-session data is never called after-hours pricing.** This is enforced
+four times over, because it is the one mistake that reached a reader: a correct
+price under a wrong session label. The prompt bans the wording in three places,
+conditional on `afterHoursAvailable`; and `validateAnalysis` refuses any
+`whatChanged`, reason or risk that asserts a session a data plan never supplied,
+while still permitting honest statements of the limitation. The check is
+sentence-level, so a correct disclaimer in one sentence cannot license an
+assertion in the next. `findSessionMislabel` is exported and tested directly.
+
+**A brief that leaves the app keeps its context.** "Copy brief" and "Share
+brief" both serialise through `src/lib/brief.ts`, so the text carries the data
+source, the exact quote timestamp, the regular-session notice and the full
+disclaimer into whatever chat it lands in. A copied verdict without them is a
+number in search of a decision.
+
+**Nothing persists server-side.** The last five briefs are kept in the reader's
+own `localStorage` and nowhere else. There is no account to attach them to and
+no endpoint that receives them. Every storage access is guarded, because a
+history feature that can throw is worse than no history feature.
+
 **Demo analysis is labelled as demo.** When no model credential is configured,
 or the model call fails, or the response fails validation, the deterministic
 engine answers and the card says **"Demo analysis"** as prominently as it would
@@ -112,19 +132,24 @@ src/
 │       ├── health/route.ts     GET  · config status, no values
 │       └── routes.test.ts      the HTTP contract those three expose
 ├── components/
-│   ├── ResearchDesk.tsx        client · request lifecycle state machine
+│   ├── ResearchDesk.tsx        client · request lifecycle, history, sticky bar
 │   ├── ResearchForm.tsx        client · instrument, horizon, risk
 │   ├── ResearchCard.tsx        the assembled answer, in reading order
+│   ├── DataProvenance.tsx      source + exact quote timestamp, on every card
 │   ├── MarketSnapshotPanel.tsx the evidence table (never model-generated)
+│   ├── BriefActions.tsx        client · copy / native share, text only
+│   ├── BriefHistory.tsx        the last five briefs, stored locally
 │   ├── Indicators.tsx          verdict, confidence, exposure, mode banner
 │   ├── MarketStatusPill.tsx    client · session + configuration strip
-│   ├── LoadingResearch.tsx     skeleton
+│   ├── LoadingResearch.tsx     skeleton, shaped like the card that replaces it
 │   └── ErrorNotice.tsx         friendly error surface
 ├── lib/
 │   ├── types.ts                the domain contract
 │   ├── assets.ts               curated instrument list
 │   ├── errors.ts               typed errors → friendly copy, no internals
 │   ├── schema.ts               strict model-output validation
+│   ├── brief.ts                brief → plain text, for copy and share
+│   ├── history.ts              localStorage-backed recent briefs
 │   ├── request.ts              the input boundary
 │   ├── api.ts                  response helpers
 │   ├── market/
@@ -139,9 +164,12 @@ src/
 │   │   ├── fallback.ts         deterministic engine
 │   │   └── fallback.test.ts
 │   ├── schema.test.ts
+│   ├── brief.test.ts
+│   ├── history.test.ts
 │   └── request.test.ts
 └── test-support/
-    └── finnhub-stub.ts         shared fixtures + the fetch seam
+    ├── finnhub-stub.ts         shared provider fixtures + the fetch seam
+    └── result-fixture.ts       a complete ResearchResult, typed as one
 ```
 
 `routes.test.ts` calls the handlers directly with real `Request` objects, so it
@@ -172,18 +200,20 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 135 tests
+npm test           # node --test, 195 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-135 tests cover the places where a bug would be a *correctness* problem rather
+195 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
   model: prose instead of JSON, the wrong ticker, an out-of-band confidence,
-  the wrong number of bullets, markdown decoration.
+  the wrong number of bullets, markdown decoration. It also covers the
+  session-label rule: text that calls a regular-session print an after-hours
+  one is rejected, and honest statements of the limitation are not.
 - **`session.test.ts`** — session classification and the NYSE holiday calendar,
   including observed-date shifting, Good Friday via computus, and 13:00 ET half
   days. A calendar wrong by a day produces an app that confidently mislabels a
@@ -191,6 +221,16 @@ than a cosmetic one:
 - **`fallback.test.ts`** — the demo engine. Its output is run through the *same*
   validator that gates model output, so "one contract, one validator" is a
   tested property rather than an aspiration.
+- **`brief.test.ts`** — the text that leaves the app. A copied brief arrives
+  without the card's banners or footnotes, so the provenance line and the
+  disclaimer have to be in the text itself; both are asserted verbatim, as is
+  the rule that a missing number renders as "unavailable" rather than "$0.00".
+  The shape guard is checked from both sides, including against a payload
+  produced by the real pipeline and round-tripped through JSON.
+- **`history.test.ts`** — storage the app does not own: unavailable storage,
+  malformed JSON, entries that are not briefs, a write that throws on quota.
+  All of them have to end in a rendered page, so the tests assert that none of
+  them throw.
 - **`request.test.ts`** — the input boundary, including the distinction between
   a malformed symbol and a well-formed one we do not cover.
 - **`analyze.test.ts`** — the full pipeline, market adapter through mode

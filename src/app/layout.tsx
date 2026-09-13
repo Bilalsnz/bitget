@@ -22,6 +22,9 @@ export const viewport: Viewport = {
   // Zoom is left enabled — capping it would break accessibility for anyone
   // who needs to magnify the numbers.
   themeColor: '#04050C',
+  // Lets the sticky Analyse bar pad itself against the home-indicator area
+  // instead of sitting under it on a notched phone.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

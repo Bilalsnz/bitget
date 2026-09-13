@@ -11,10 +11,21 @@
  * chooses what to *research*, and nothing it does can move money.
  */
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 import { ASSETS } from '@/lib/assets';
 import { HOLDING_PERIODS, RISK_STYLES, type HoldingPeriodId, type ResearchRequest, type RiskStyle } from '@/lib/types';
+
+/**
+ * The form's DOM id.
+ *
+ * Exported because the sticky Analyse bar is rendered *outside* the form — by
+ * the desk, which owns the scroll position — and reaches it through the HTML
+ * `form` attribute. That attribute is the reason the sticky button can live
+ * anywhere in the document and still submit this form natively: no ref, no
+ * synthetic click, no duplicated submit logic to drift out of sync.
+ */
+export const RESEARCH_FORM_ID = 'research-form';
 
 const RISK_HINT: Record<RiskStyle, string> = {
   Conservative: 'Capital preservation first',
@@ -26,10 +37,20 @@ export function ResearchForm({
   onSubmit,
   loading,
   current,
+  onValidityChange,
 }: {
   onSubmit: (request: ResearchRequest) => void;
   loading: boolean;
   current: ResearchRequest | null;
+  /**
+   * Reports whether the form could be submitted right now.
+   *
+   * The sticky bar's button has to be disabled in exactly the cases this form's
+   * own button is, and the ticker lives in local state here. Reporting it up is
+   * cheaper than lifting the whole form, and it keeps one definition of "ready"
+   * rather than two that can disagree.
+   */
+  onValidityChange?: (canSubmit: boolean) => void;
 }) {
   const tickerFieldId = useId();
   const [ticker, setTicker] = useState(current?.ticker ?? 'AAPL');
@@ -38,8 +59,13 @@ export function ResearchForm({
 
   const canSubmit = ticker.trim().length > 0 && !loading;
 
+  useEffect(() => {
+    onValidityChange?.(canSubmit);
+  }, [canSubmit, onValidityChange]);
+
   return (
     <form
+      id={RESEARCH_FORM_ID}
       className="panel animate-fade-up p-4 sm:p-5"
       onSubmit={(event) => {
         event.preventDefault();
@@ -90,7 +116,7 @@ export function ResearchForm({
                 aria-pressed={active}
                 onClick={() => setTicker(asset.ticker)}
                 title={asset.name}
-                className={`min-h-[36px] rounded-lg border px-3 font-mono text-xs font-semibold transition active:scale-[0.97] ${
+                className={`min-h-[44px] rounded-xl border px-3.5 font-mono text-xs font-semibold transition active:scale-[0.97] ${
                   active
                     ? 'border-accent-cyan/60 bg-accent-cyan/15 text-accent-cyan'
                     : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/25 hover:text-slate-100'

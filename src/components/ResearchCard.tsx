@@ -13,6 +13,8 @@
 import { getAsset } from '@/lib/assets';
 import { HOLDING_PERIODS, type ResearchResult } from '@/lib/types';
 
+import { BriefActions } from './BriefActions';
+import { DataProvenance } from './DataProvenance';
 import { ConfidenceMeter, ExposureBadge, ModeIndicator, VerdictBadge } from './Indicators';
 import { MarketSnapshotPanel } from './MarketSnapshotPanel';
 
@@ -94,6 +96,11 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
         </div>
       </header>
 
+      {/* --------------------------------------------------- data honesty */}
+      {/* Placed before the verdict on purpose. The reader meets the limits of
+          the data before they meet the conclusion drawn from it, not after. */}
+      <DataProvenance snapshot={snapshot} />
+
       {/* ------------------------------------------- verdict and sizing */}
       <div className="grid gap-3 sm:grid-cols-3">
         <VerdictBadge verdict={analysis.verdict} ticker={request.ticker} />
@@ -138,6 +145,21 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
           brokerage connection and cannot place an order, move funds, or act on your behalf —
           there is nothing on this page that can.
         </p>
+      </section>
+
+      {/* -------------------------------------------------- take it with you */}
+      {/* The only controls on this card, and both move text rather than money.
+          The copy path serialises through `lib/brief.ts`, so the brief carries
+          the provenance line and the disclaimer wherever it is pasted. */}
+      <section className="panel p-4 sm:p-5">
+        <h3 className="label">Take this brief with you</h3>
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+          Copies the full brief as plain text, including the data source, the quote
+          timestamp and the disclaimer.
+        </p>
+        <div className="mt-3">
+          <BriefActions result={result} />
+        </div>
       </section>
 
       {/* ------------------------------------------------------- evidence */}

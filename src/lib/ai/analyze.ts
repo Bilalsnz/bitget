@@ -103,7 +103,12 @@ export async function runAnalysis(
       buildUserPrompt(request, snapshot),
     );
 
-    const result = validateAnalysis(raw, request.ticker);
+    const result = validateAnalysis(raw, request.ticker, {
+      // The same field the prompt reads and the UI renders. When a data plan
+      // ever supplies a real extended-hours print, the labelling rule lifts
+      // everywhere at once rather than in three places independently.
+      afterHoursAvailable: snapshot.quote.afterHoursAvailable,
+    });
 
     if (result.ok) {
       const label = aiProviderLabel();

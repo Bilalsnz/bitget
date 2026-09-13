@@ -57,6 +57,25 @@ const VERDICT_STYLE: Record<
   },
 };
 
+/**
+ * Tone for compact renderings that carry their own layout — the history rows,
+ * which need the verdict's colour without the full badge.
+ *
+ * Falls back to HOLD rather than indexing blindly. `isResearchResult` already
+ * rejects a stored brief whose verdict is outside the enum, so this is the
+ * second line of defence rather than the first — but a lookup table indexed by
+ * a value that came out of localStorage is worth defending twice.
+ */
+export function verdictTone(verdict: Verdict): { text: string; dot: string } {
+  // `hasOwnProperty` rather than `in`: `in` walks the prototype chain, so a
+  // stored value of "toString" would take the inherited function's branch and
+  // read `.text` off it. Own-property membership is the question actually being
+  // asked here.
+  const own = Object.prototype.hasOwnProperty.call(VERDICT_STYLE, verdict);
+  const chosen = own ? VERDICT_STYLE[verdict] : VERDICT_STYLE.HOLD;
+  return { text: chosen.text, dot: chosen.dot };
+}
+
 export function VerdictBadge({ verdict, ticker }: { verdict: Verdict; ticker: string }) {
   const style = VERDICT_STYLE[verdict];
 

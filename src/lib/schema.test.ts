@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import {
   coerceConfidence,
   extractJsonObject,
+  findSessionMislabel,
   parseAndValidateAnalysis,
   sanitiseText,
   validateAnalysis,
@@ -216,5 +217,154 @@ describe('parseAndValidateAnalysis', () => {
     const result = parseAndValidateAnalysis('I am unable to provide that analysis.', 'AAPL');
     assert.equal(result.ok, false);
     if (!result.ok) assert.ok(result.errors[0].includes('parseable'));
+  });
+
+  it('applies the session-label gate through the parsing wrapper too', () => {
+    const raw = JSON.stringify(valid({ whatChanged: 'The after-hours print rose 1.75% on light volume.' }));
+    assert.equal(parseAndValidateAnalysis(raw, 'AAPL').ok, false);
+  });
+});
+
+/* ------------------------------------------- regular-session labelling rule */
+
+describe('findSessionMislabel', () => {
+  /*
+   * The bug this rule exists for: the model wrote "Apple's after-hours print
+   * rose 1.75%" from data that contains no after-hours print at all. The number
+   * was right and the session was wrong.
+   *
+   * The rule is deliberately a heuristic rather than a ban on the vocabulary,
+   * because telling the reader "this plan provides no after-hours quote" is the
+   * honesty the product is built on. Both halves of that trade are pinned here:
+   * assertions are caught, honest limitations are not.
+   */
+
+  it('catches a session label attached to a price or a move', () => {
+    const assertions = [
+      "Apple's after-hours print rose 1.75%.",
+      'The after-hours price sits at $190.25.',
+      'The stock gained 2% in after-hours trading.',
+      'Shares moved sharply during extended-hours trading.',
+      'The post-market move was the largest of the week.',
+      'The pre-market quote implies a higher open.',
+      'After-hours volume was unusually heavy.',
+    ];
+
+    for (const text of assertions) {
+      assert.notEqual(findSessionMislabel(text), null, `should have caught: "${text}"`);
+    }
+  });
+
+  it('accepts the honest limitation statements the app is built on', () => {
+    const honest = [
+      'This data plan provides no separate after-hours quote for US equities.',
+      'The price is a regular-session print rather than an after-hours quote.',
+      'Extended-hours trading is not reflected in this price.',
+      'No after-hours print is available for this instrument.',
+      'The move happened in the regular session, not in after-hours trading.',
+      'This tool cannot show after-hours prices on its current data plan.',
+      'The quote is the latest available print; extended-hours data is unavailable.',
+    ];
+
+    for (const text of honest) {
+      assert.equal(findSessionMislabel(text), null, `should have permitted: "${text}"`);
+    }
+  });
+
+  it('judges each sentence on its own', () => {
+    // The subtle failure: a correct disclaimer in one sentence licensing an
+    // assertion in the next. Sentence-level analysis is what stops that.
+    const mixed =
+      'This plan provides no after-hours quote. The after-hours print rose 1.75%.';
+
+    const found = findSessionMislabel(mixed);
+    assert.notEqual(found, null);
+    assert.ok(found?.includes('1.75'));
+  });
+
+  it('does not fire on ordinary session words', () => {
+    const clean = [
+      'The regular session closed higher on above-average volume.',
+      'The stock finished the day up 2.28% versus the previous close.',
+      'Trading was quiet into the close with no obvious catalyst.',
+    ];
+
+    for (const text of clean) {
+      assert.equal(findSessionMislabel(text), null, `should not have flagged: "${text}"`);
+    }
+  });
+
+  it('returns null for empty and non-string input', () => {
+    assert.equal(findSessionMislabel(''), null);
+    assert.equal(findSessionMislabel(null as unknown as string), null);
+  });
+});
+
+describe('validateAnalysis — the session-label gate', () => {
+  const asserting = {
+    whatChanged: "Apple's after-hours print rose 1.75% in a quiet session.",
+  };
+
+  it('rejects a regular-session price described as after-hours', () => {
+    const result = validateAnalysis(valid(asserting), 'AAPL');
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.ok(
+        result.errors.some((error) => error.includes('after-hours')),
+        'the error must name the rule that failed',
+      );
+    }
+  });
+
+  it('checks the reasons and the risks, not only whatChanged', () => {
+    const reasons = valid().reasons;
+    const risks = valid().risks;
+
+    assert.equal(
+      validateAnalysis(
+        valid({ reasons: [reasons[0], reasons[1], 'The extended-hours move was unusually large.'] }),
+        'AAPL',
+      ).ok,
+      false,
+    );
+
+    assert.equal(
+      validateAnalysis(
+        valid({ risks: [...risks.slice(0, 2), 'The post-market price may not hold.'] }),
+        'AAPL',
+      ).ok,
+      false,
+    );
+  });
+
+  it('permits the honest limitation in the same fields', () => {
+    // The deterministic fallback says exactly this, so a gate that rejected it
+    // would break the demo path — which is the path every judge without a key
+    // sees.
+    const result = validateAnalysis(
+      valid({
+        whatChanged:
+          'The instrument closed higher on the session, on a print the data plan supplies as a regular-session close rather than a live extended-hours quote.',
+      }),
+      'AAPL',
+    );
+
+    assert.equal(result.ok, true);
+  });
+
+  it('lifts the rule when the snapshot genuinely carried the quote', () => {
+    // The same text that is a false statement today would be a true one under a
+    // data plan that supplies extended-hours prints, so the gate is conditional
+    // on the data rather than permanent.
+    const result = validateAnalysis(valid(asserting), 'AAPL', { afterHoursAvailable: true });
+
+    assert.equal(result.ok, true);
+  });
+
+  it('applies by default, since the default data plan has no extended hours', () => {
+    // Omitting the option must fail closed. A caller that forgets it should get
+    // the strict behaviour, not the permissive one.
+    assert.equal(validateAnalysis(valid(asserting), 'AAPL').ok, false);
   });
 });

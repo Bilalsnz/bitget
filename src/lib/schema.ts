@@ -108,13 +108,102 @@ export function coerceConfidence(input: unknown): number | null {
 
 export type ExpectedTicker = { ticker: string };
 
+/* ------------------------------------------------- session-label enforcement */
+
+/**
+ * Refuse text that labels a regular-session price as an after-hours one.
+ *
+ * ## Why this exists in the validator and not only in the prompt
+ *
+ * The prompt bans the wording explicitly, in three places. A prompt is a
+ * request, though, and this particular mistake is the one that actually reached
+ * a reader: a correct price under a wrong session label. That failure is worse
+ * than a wrong number, because a plausible figure under a plausible label does
+ * not look like an error — nobody re-checks it. So the last gate before
+ * rendering enforces it too.
+ *
+ * ## Why it is a heuristic rather than a ban on the words
+ *
+ * Telling the reader "this data plan provides no after-hours quote" is *desired*
+ * output — it is the honesty this product is built on. A blunt ban on the
+ * vocabulary would suppress exactly the sentences worth keeping. So the rule
+ * targets the *assertion*: a session label attached to a thing that has a
+ * price. Negated forms are recognised, before and after the label, and each
+ * sentence is judged on its own so a disclaimer in one cannot license an
+ * assertion in the next.
+ *
+ * The cost of a false positive is a demo-labelled card, which is safe. The cost
+ * of a false negative is the bug this was written for. The rules lean
+ * accordingly.
+ */
+const SESSION_LABEL = String.raw`(?:after[-\s]?hours|extended[-\s]?hours|post[-\s]?market|pre[-\s]?market)`;
+
+/** A session label attached to something that has a price, or used adverbially. */
+const ASSERTED_SESSION = new RegExp(
+  String.raw`\b(?:in|during)\s+${SESSION_LABEL}\b` +
+    String.raw`|\b${SESSION_LABEL}\s+(?:print|price|quote|move|gain|rise|rose|fall|fell|drop|decline|rally|trade|trading|action|session|activity|volume|market|level|number)\b`,
+  'i',
+);
+
+/** "no separate after-hours quote", "rather than a live extended-hours print" */
+const NEGATED_BEFORE = new RegExp(
+  String.raw`\b(?:no|not|cannot|can't|without|never|lacks?|unavailable|isn't|aren't|doesn't|don't|` +
+    String.raw`rather\s+than|instead\s+of|does\s+not|do\s+not|is\s+not|are\s+not)\b[^.]{0,48}?\b${SESSION_LABEL}`,
+  'i',
+);
+
+/** "extended-hours trading is not reflected in this price" */
+const NEGATED_AFTER = new RegExp(
+  String.raw`\b${SESSION_LABEL}\b[^.]{0,48}?\b(?:is\s+not|isn't|are\s+not|aren't|cannot|can't|` +
+    String.raw`not\s+available|unavailable|not\s+visible|not\s+shown|not\s+reflected|not\s+included|` +
+    String.raw`not\s+provided|does\s+not|doesn't|do\s+not)\b`,
+  'i',
+);
+
+/**
+ * The offending sentence, or null when the text is clean.
+ *
+ * Exported for direct testing — the rule is subtle enough that its edges should
+ * be pinned individually rather than only through a whole analysis.
+ */
+export function findSessionMislabel(text: string): string | null {
+  if (typeof text !== 'string' || !text) return null;
+
+  // Sentence at a time: a negated mention in one sentence must not whitelist an
+  // assertion in the next. Splitting on the terminators (and discarding them)
+  // is enough — the patterns never need to match across one.
+  for (const sentence of text.split(/[.!?;]+\s+/)) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    if (!ASSERTED_SESSION.test(trimmed)) continue;
+    if (NEGATED_BEFORE.test(trimmed) || NEGATED_AFTER.test(trimmed)) continue;
+    return trimmed;
+  }
+  return null;
+}
+
+/** Options that change what the guard is allowed to reject. */
+export type ValidationOptions = {
+  /**
+   * Whether the snapshot genuinely carried a distinguishable extended-hours
+   * quote. Defaults to `false`, which is the truth for this deployment's data
+   * plan — and the safe default, since it is the case where the mislabel is a
+   * false statement rather than a stylistic preference.
+   */
+  afterHoursAvailable?: boolean;
+};
+
 /**
  * Validate a parsed model object into an `Analysis`.
  *
  * `expectedTicker` guards against a model that answers about the wrong symbol —
  * a real failure mode when the prompt contains several tickers.
  */
-export function validateAnalysis(input: unknown, expectedTicker: string): ValidationResult {
+export function validateAnalysis(
+  input: unknown,
+  expectedTicker: string,
+  options: ValidationOptions = {},
+): ValidationResult {
   const errors: string[] = [];
 
   if (!isPlainObject(input)) {
@@ -162,6 +251,26 @@ export function validateAnalysis(input: unknown, expectedTicker: string): Valida
     errors.push('suggestedExposure must be one of SMALL, MEDIUM, SKIP.');
   }
 
+  // The session-label gate. Runs only when the data plan has no extended-hours
+  // quote — which is always, today — because that is the case where calling a
+  // regular-session print "after-hours" is a false statement rather than a
+  // permitted description.
+  if (!options.afterHoursAvailable) {
+    const fields: Array<[string, string]> = [['whatChanged', whatChanged]];
+    reasons.forEach((text, i) => fields.push([`reasons[${i}]`, text]));
+    risks.forEach((text, i) => fields.push([`risks[${i}]`, text]));
+
+    for (const [field, text] of fields) {
+      const mislabel = findSessionMislabel(text);
+      if (mislabel) {
+        errors.push(
+          `${field} states a regular-session price or move as after-hours: "${mislabel}". ` +
+            'This data plan provides no extended-hours quote.',
+        );
+      }
+    }
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -182,10 +291,11 @@ export function validateAnalysis(input: unknown, expectedTicker: string): Valida
 export function parseAndValidateAnalysis(
   raw: string,
   expectedTicker: string,
+  options: ValidationOptions = {},
 ): ValidationResult {
   const parsed = extractJsonObject(raw);
   if (parsed === null) {
     return { ok: false, errors: ['Response did not contain a parseable JSON object.'] };
   }
-  return validateAnalysis(parsed, expectedTicker);
+  return validateAnalysis(parsed, expectedTicker, options);
 }
