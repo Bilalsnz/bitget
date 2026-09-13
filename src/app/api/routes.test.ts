@@ -43,8 +43,10 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
 beforeEach(() => {
   console.error = () => {};
   process.env.FINNHUB_API_KEY = 'test-market-key';
-  // Pin the SDK base URL so the stub matches regardless of ambient config.
-  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+  // Nothing to pin about the provider host — it is a constant in the module —
+  // but `AI_MODEL` must be cleared so an ambient value cannot change what the
+  // request-shape assertions see.
+  delete process.env.AI_MODEL;
 });
 
 afterEach(() => {
@@ -58,7 +60,7 @@ afterEach(() => {
 
 describe('POST /api/analyze — success', () => {
   it('returns the full payload the research card renders', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch();
 
     const res = await analyze(post({ ticker: 'aapl' }));
@@ -79,10 +81,13 @@ describe('POST /api/analyze — success', () => {
     assert.equal(body.mode, 'live');
     assert.equal((body.analysis as Record<string, unknown>).verdict, 'BUY');
     assert.ok(typeof body.modeReason === 'string' && body.modeReason.length > 0);
+    // The label names the provider, so the card can distinguish generated
+    // analysis from the deterministic engine without the reader asking.
+    assert.equal(body.providerLabel, 'Groq · openai/gpt-oss-20b');
   });
 
   it('never caches a response carrying live market data', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch();
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -90,7 +95,7 @@ describe('POST /api/analyze — success', () => {
   });
 
   it('serves every supported instrument through the same path', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch();
 
     for (const ticker of ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN']) {
@@ -103,7 +108,7 @@ describe('POST /api/analyze — success', () => {
   });
 
   it('degrades to demo mode when the model answers with prose', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch({ modelText: 'I cannot help with that.' });
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -116,8 +121,7 @@ describe('POST /api/analyze — success', () => {
   });
 
   it('still answers when no AI credential is configured', async () => {
-    delete process.env.AI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GROQ_API_KEY;
     restore = stubFetch();
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -204,7 +208,7 @@ describe('POST /api/analyze — market failures', () => {
     // The regression this guards: both used to surface as MISSING_MARKET_KEY,
     // so "your key is wrong" read as "you have not set a key" — and the fix
     // suggested was the step the operator had already completed.
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch({ marketStatus: 401, marketErrorBody: { error: 'Invalid API key.' } });
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -218,7 +222,7 @@ describe('POST /api/analyze — market failures', () => {
   });
 
   it('treats 403 the same way as 401', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch({ marketStatus: 403 });
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -234,7 +238,7 @@ describe('POST /api/analyze — market failures', () => {
   });
 
   it('does not invent a price when the provider rejects the key', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch({ marketStatus: 401, marketErrorBody: { error: 'Invalid API key.' } });
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -246,7 +250,7 @@ describe('POST /api/analyze — market failures', () => {
   });
 
   it('surfaces a provider outage as a market error, not a crash', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
     restore = stubFetch({ marketStatus: 503 });
 
     const res = await analyze(post({ ticker: 'AAPL' }));
@@ -337,8 +341,70 @@ describe('GET /api/health — market key diagnostics', () => {
   });
 });
 
-/* --------------------------------------------------------------- GET /quote */
+/* ---------------------------------------------------------- GET /health — AI */
 
+/**
+ * The health endpoint is what a judge or an operator reads to answer one
+ * question: is the analysis I am looking at generated, or deterministic? That
+ * makes `ai.configured` a claim the deployment has to be able to back up, so it
+ * is pinned here in both directions alongside the provider and model names.
+ */
+describe('GET /api/health — AI provider reporting', () => {
+  async function aiSection(): Promise<Record<string, unknown>> {
+    const body = await readJson(await health(new Request('http://localhost/api/health')));
+    return body.ai as Record<string, unknown>;
+  }
+
+  it('reports the provider and model when a credential is configured', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    const ai = await aiSection();
+
+    assert.equal(ai.configured, true);
+    assert.equal(ai.provider, 'Groq');
+    assert.equal(ai.model, 'openai/gpt-oss-20b');
+    assert.equal(ai.keyVariable, 'GROQ_API_KEY');
+  });
+
+  it('honours an AI_MODEL override in what it reports', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    process.env.AI_MODEL = 'llama-3.3-70b-versatile';
+
+    const ai = await aiSection();
+    assert.equal(ai.model, 'llama-3.3-70b-versatile');
+  });
+
+  it('reports configured:false and no key variable when nothing is set', async () => {
+    delete process.env.GROQ_API_KEY;
+    const ai = await aiSection();
+
+    assert.equal(ai.configured, false);
+    assert.equal(ai.keyVariable, null);
+    assert.equal(ai.label, 'Demo analysis');
+  });
+
+  it('never reports the credential, its length, or a prefix', async () => {
+    process.env.GROQ_API_KEY = 'gsk_super_secret_value';
+    const raw = JSON.stringify(await readJson(await health(new Request('http://localhost/api/health'))));
+
+    assert.ok(!raw.includes('gsk_super_secret_value'));
+    assert.ok(!raw.includes('gsk_'));
+    assert.ok(!raw.includes('super_secret'));
+  });
+
+  it('names the fallback conditions rather than promising AI unconditionally', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    const ai = await aiSection();
+
+    // A deployment with a key can still serve a demo card — on a provider
+    // error, a timeout, or output that fails validation. The health report
+    // must not imply otherwise.
+    const fallback = String(ai.fallback);
+    assert.ok(fallback.includes('deterministic'));
+    assert.ok(fallback.includes('validation'));
+  });
+});
+
+/* --------------------------------------------------------------- GET /quote */
 describe('GET /api/quote', () => {
   it('returns a market snapshot on its own', async () => {
     restore = stubFetch();

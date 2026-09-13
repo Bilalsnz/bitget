@@ -19,7 +19,7 @@ type Health = {
     etTime?: string;
   };
   marketData?: { configured?: boolean };
-  ai?: { configured?: boolean; model?: string };
+  ai?: { configured?: boolean; provider?: string; model?: string };
 };
 
 export function MarketStatusPill() {
@@ -45,6 +45,10 @@ export function MarketStatusPill() {
   const session = health?.session;
   const marketConfigured = health?.marketData?.configured;
   const aiConfigured = health?.ai?.configured;
+  // Named when the deployment reports it, so the pill can say *which* model is
+  // behind the analysis rather than a generic "AI". Falls back to the plain
+  // wording if an older deployment answers without the field.
+  const aiName = [health?.ai?.provider, health?.ai?.model].filter(Boolean).join(' ');
 
   // Dot colour, but the label always spells the state out.
   const dot = session?.marketOpenNow
@@ -73,7 +77,7 @@ export function MarketStatusPill() {
           className="pill"
           title={
             aiConfigured
-              ? 'A model credential is configured. Analyses are generated live.'
+              ? `Generated live${aiName ? ` by ${aiName}` : ''} from the market snapshot. Every price and percentage shown comes from the data layer, not from the model.`
               : 'No model credential is configured. Analyses come from the built-in deterministic engine and are labelled "Demo analysis".'
           }
         >

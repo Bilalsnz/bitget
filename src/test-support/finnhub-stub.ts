@@ -3,13 +3,19 @@
  *
  * Not application code — nothing in `src/app` or `src/lib` imports this, so it
  * is absent from the production build. It exists so the integration suite and
- * the route suite describe the *same* provider. Two suites with two private
+ * the route suite describe the *same* providers. Two suites with two private
  * copies of "what Finnhub returns" is how one of them quietly starts testing a
  * fiction the provider never sends.
  *
- * The seam is `globalThis.fetch`, not our own modules. The Anthropic SDK uses
- * `fetch` underneath, so one stub covers both providers and nothing that ships
- * is replaced by a fake.
+ * The seam is `globalThis.fetch`, not our own modules. Both the market adapter
+ * and the AI provider call `fetch` directly, so one stub covers everything and
+ * nothing that ships is replaced by a fake.
+ *
+ * Every response *shape* here is taken from the provider's published contract —
+ * Finnhub's OpenAPI spec, Groq's chat-completions reference. The *values* are
+ * fixtures. That distinction matters: these tests prove the pipeline handles the
+ * shapes correctly, and prove nothing at all about what a live endpoint would
+ * return today.
  */
 
 import type { ResearchRequest } from '@/lib/types';
@@ -44,21 +50,33 @@ export const NEWS_BODY = [
 
 export const MARKET_STATUS_BODY = { exchange: 'US', session: 'regular', holiday: null };
 
-/** Wrap a body the way the Anthropic Messages API would return it. */
-export function anthropicMessage(text: string, stopReason = 'end_turn') {
+/**
+ * Wrap a body the way Groq's OpenAI-compatible chat-completions endpoint does.
+ *
+ * The differences from other chat APIs are the ones that actually reach our
+ * parser: content is `choices[0].message.content` — a plain string, not an
+ * array of typed blocks — and there is no `stop_reason`, so a refusal arrives
+ * as ordinary prose and is caught by validation rather than by a field.
+ */
+export function groqCompletion(text: string) {
   return {
-    id: 'msg_test',
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-opus-5',
-    content: [{ type: 'text', text }],
-    stop_reason: stopReason,
-    stop_sequence: null,
-    usage: { input_tokens: 100, output_tokens: 50 },
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    created: TIMESTAMP,
+    model: 'openai/gpt-oss-20b',
+    choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 900, completion_tokens: 220, total_tokens: 1_120 },
+    system_fingerprint: 'fp_test',
   };
 }
 
-/** A model answer that satisfies the strict schema. */
+/**
+ * A model answer that satisfies the strict schema.
+ *
+ * It is also a specification of the behaviour we want: the third reason
+ * *interprets* the supplied headline rather than noting that one exists. A
+ * fixture that merely counted headlines would quietly bless the weaker output.
+ */
 export function modelAnalysis(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     ticker: 'AAPL',
@@ -69,7 +87,7 @@ export function modelAnalysis(overrides: Record<string, unknown> = {}): string {
     reasons: [
       'The 2.28% move is large enough to change the near-term picture rather than being drift.',
       'The last print finished near the session high, so buyers held control into the close.',
-      'One recent headline was retrieved, though its content is not summarised here.',
+      'The one retrieved headline describes a product announcement, which supports the move without implying an earnings surprise.',
     ],
     risks: [
       'The next regular open can reprice this before any decision is acted upon.',
@@ -82,9 +100,22 @@ export function modelAnalysis(overrides: Record<string, unknown> = {}): string {
 }
 
 export type StubOptions = {
-  /** Returned by the model call. A string is used as the text block verbatim. */
+  /** Returned as the model message content. A string is used verbatim. */
   modelText?: string;
-  modelStopReason?: string;
+  /** HTTP status for the model call. Applies to every call. */
+  providerStatus?: number;
+  /**
+   * HTTP statuses for successive model calls, consumed in order before
+   * `providerStatus` applies. This is what makes the schema-rejection retry
+   * observable: `[400, 200]` fails once and then succeeds.
+   */
+  providerStatusSequence?: number[];
+  /** Body for a failing model call. Defaults to a schema-shaped error. */
+  providerErrorBody?: unknown;
+  /** Replaces the whole model response body, for malformed-shape tests. */
+  providerBody?: unknown;
+  /** Called with each model request body, in order, as it is sent. */
+  onProviderRequest?: (body: Record<string, unknown>) => void;
   /** Make the market data call fail with this HTTP status. */
   marketStatus?: number;
   /** Raw body for a failing market call, when a specific payload matters. */
@@ -99,6 +130,7 @@ export type StubOptions = {
  */
 export function stubFetch(options: StubOptions = {}): () => void {
   const original = globalThis.fetch;
+  const remaining = [...(options.providerStatusSequence ?? [])];
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -128,12 +160,29 @@ export function stubFetch(options: StubOptions = {}): () => void {
       });
     }
 
-    if (url.includes('anthropic.com')) {
-      void init;
-      return new Response(
-        JSON.stringify(anthropicMessage(options.modelText ?? modelAnalysis(), options.modelStopReason)),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+    if (url.includes('groq.com')) {
+      if (typeof init?.body === 'string') {
+        options.onProviderRequest?.(JSON.parse(init.body) as Record<string, unknown>);
+      }
+
+      const status = remaining.length > 0 ? (remaining.shift() as number) : (options.providerStatus ?? 200);
+      if (status !== 200) {
+        return new Response(
+          JSON.stringify(
+            // The default names the schema, because a 400 that does is the one
+            // the provider layer is allowed to retry. A test wanting a *fatal*
+            // 400 must pass its own body.
+            options.providerErrorBody ?? { error: { message: 'response_format json_schema is not supported' } },
+          ),
+          { status, headers: { 'content-type': 'application/json' } },
+        );
+      }
+
+      const body = options.providerBody ?? groqCompletion(options.modelText ?? modelAnalysis());
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     }
 
     throw new Error(`Unexpected fetch in test: ${url}`);

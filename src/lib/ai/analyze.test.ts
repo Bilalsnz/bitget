@@ -1,16 +1,16 @@
 /**
  * End-to-end tests for the analysis orchestrator.
  *
- * These exercise the real pipeline — market adapter → prompt → model client →
+ * These exercise the real pipeline — market adapter → prompt → provider call →
  * structured parse → validation → mode selection — with `fetch` stubbed at the
  * network boundary. Stubbing at `fetch` rather than mocking our own modules is
- * deliberate: the Anthropic SDK uses `fetch` underneath, so a single seam
- * covers both providers and nothing in our code is replaced by a fake. What is
- * tested is what ships.
+ * deliberate: the provider calls `fetch` directly, so a single seam covers both
+ * upstreams and nothing in our code is replaced by a fake. What is tested is
+ * what ships.
  *
  * The fixtures and the stub live in `@/test-support/finnhub-stub` because the
- * route suite needs the identical provider. Two private copies of "what
- * Finnhub returns" is how one suite starts asserting against a fiction.
+ * route suite needs the identical providers. Two private copies of "what Groq
+ * returns" is how one suite starts asserting against a fiction.
  *
  * The cases that matter most are the degradations. A live call that works is
  * pleasant; a live call that returns *plausible garbage* is the scenario that
@@ -31,17 +31,37 @@ const originalEnv = { ...process.env };
 let logged: unknown[][] = [];
 const originalError = console.error;
 
+/** Every provider request body, in the order it was sent. */
+let sent: Record<string, unknown>[] = [];
+
+/**
+ * Install the stub and record what the provider layer actually sends.
+ *
+ * Recording the outbound body is how the "no fabrication" rule gets tested from
+ * the side that matters: it is not enough that the *output* avoids invented
+ * numbers, the prompt has to carry the real ones in the first place.
+ */
+function stubWith(options: Parameters<typeof stubFetch>[0] = {}): void {
+  restoreFetch = stubFetch({ ...options, onProviderRequest: (body) => sent.push(body) });
+}
+
+/** The user message of the nth provider request. */
+function userMessage(index = 0): string {
+  const messages = (sent[index]?.messages ?? []) as Array<{ role: string; content: string }>;
+  return messages.find((m) => m.role === 'user')?.content ?? '';
+}
+
 beforeEach(() => {
   logged = [];
+  sent = [];
   console.error = (...args: unknown[]) => {
     logged.push(args);
   };
   process.env.FINNHUB_API_KEY = 'test-market-key';
-  // Pin the SDK's base URL so the stub below matches regardless of ambient
-  // configuration. The SDK honours ANTHROPIC_BASE_URL, and a developer machine
-  // or CI runner may legitimately have it pointed at a gateway — without this,
-  // the suite would pass or fail based on the machine it runs on.
-  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+  // The stub matches on the provider host, and the provider host is a constant,
+  // so there is nothing to pin here — but `AI_MODEL` must be cleared, or an
+  // ambient value would change what the assertions about the request body see.
+  delete process.env.AI_MODEL;
 });
 
 afterEach(() => {
@@ -61,20 +81,21 @@ async function snapshot() {
 
 describe('runAnalysis — no AI credential', () => {
   it('answers with the labelled demo engine', async () => {
-    delete process.env.AI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    restoreFetch = stubFetch();
+    delete process.env.GROQ_API_KEY;
+    stubWith();
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
     assert.equal(result.mode, 'demo');
     assert.ok(result.modeReason.includes('No AI credential'));
     assert.equal(result.providerLabel, 'Deterministic demo engine');
+    // Nothing was sent anywhere: no credential means no outbound call at all.
+    assert.equal(sent.length, 0);
   });
 
   it('still grounds the demo analysis in real snapshot numbers', async () => {
-    delete process.env.AI_API_KEY;
-    restoreFetch = stubFetch();
+    delete process.env.GROQ_API_KEY;
+    stubWith();
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
@@ -85,31 +106,167 @@ describe('runAnalysis — no AI credential', () => {
 
 describe('runAnalysis — live model', () => {
   it('returns live mode when the model produces valid output', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch();
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
     assert.equal(result.mode, 'live');
     assert.equal(result.analysis.verdict, 'BUY');
     assert.equal(result.analysis.confidence, 71);
-    assert.ok(result.providerLabel.includes('claude-opus-5'));
+    // The label names the provider and the model, so the card can say which
+    // model produced the judgement without the reader visiting /api/health.
+    assert.ok(result.providerLabel.includes('Groq'));
+    assert.ok(result.providerLabel.includes('openai/gpt-oss-20b'));
     assert.ok(result.modeReason.includes('market snapshot'));
   });
 
+  it('asks for structured output with the schema, at the configured model', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+
+    await runAnalysis(REQUEST, await snapshot());
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].model, 'openai/gpt-oss-20b');
+
+    const format = sent[0].response_format as Record<string, unknown>;
+    assert.equal(format.type, 'json_schema');
+    const jsonSchema = format.json_schema as Record<string, unknown>;
+    assert.equal(jsonSchema.strict, true);
+    assert.ok(jsonSchema.schema, 'the request must carry the actual schema');
+  });
+
+  it('sends the real snapshot numbers rather than leaving the model to supply them', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+
+    await runAnalysis(REQUEST, await snapshot());
+    const prompt = userMessage();
+
+    // Every one of these is a figure from the quote fixture. If the prompt
+    // stopped carrying them, the model would be free to recall them instead.
+    for (const figure of ['190.25', '186.00', '191.10', '186.50', '2.28%']) {
+      assert.ok(prompt.includes(figure), `prompt should carry the real figure ${figure}`);
+    }
+    // The session range is computed in our layer, not by the model.
+    assert.ok(prompt.includes('Session range:'));
+    // And the holding period and risk profile are part of the request.
+    assert.ok(prompt.includes('1 month'));
+    assert.ok(prompt.includes('Moderate'));
+  });
+
+  it('carries the retrieved headlines into the prompt', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+
+    await runAnalysis(REQUEST, await snapshot());
+    const prompt = userMessage();
+
+    assert.ok(prompt.includes('Apple announces a thing'));
+    assert.ok(prompt.includes('Example Wire'));
+  });
+
+  it('tells the model not to invent a price when none was retrieved', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith();
+
+    await runAnalysis(REQUEST, await snapshot());
+
+    // The data plan supplies no extended-hours quote, and the prompt must say
+    // so explicitly rather than leaving the model to assume one exists.
+    assert.ok(userMessage().includes('A separate extended-hours quote is available: no'));
+  });
+
   it('recovers a fenced JSON response', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: '```json\n' + modelAnalysis() + '\n```' });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: '```json\n' + modelAnalysis() + '\n```' });
 
     const result = await runAnalysis(REQUEST, await snapshot());
     assert.equal(result.mode, 'live');
   });
 });
 
+describe('runAnalysis — provider transport behaviour', () => {
+  it('retries without the schema when the provider rejects the response format', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatusSequence: [400, 200] });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+
+    // The retry is invisible to the reader: they get a live analysis, not a
+    // degraded card, because the fallback still asked for JSON.
+    assert.equal(result.mode, 'live');
+    assert.equal(sent.length, 2);
+    assert.equal((sent[0].response_format as Record<string, unknown>).type, 'json_schema');
+    assert.equal((sent[1].response_format as Record<string, unknown>).type, 'json_object');
+  });
+
+  it('does not retry a 400 that is unrelated to the schema', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatus: 400, providerErrorBody: { error: { message: 'model_not_found' } } });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+
+    assert.equal(result.mode, 'demo');
+    assert.equal(sent.length, 1, 'a genuine bad request must not be repeated');
+  });
+
+  it('degrades to demo when the credential is refused', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatus: 401, providerErrorBody: { error: { message: 'Invalid API Key' } } });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+
+    assert.equal(result.mode, 'demo');
+    assert.ok(result.modeReason.includes('unavailable'));
+    // The provider's own words never reach the reader.
+    assert.ok(!JSON.stringify(result).includes('Invalid API Key'));
+  });
+
+  it('degrades to demo when rate limited', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatus: 429 });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+    assert.equal(result.mode, 'demo');
+  });
+
+  it('degrades to demo when the provider answers with something that is not JSON', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    restoreFetch = stubFetch();
+
+    // Bypass the JSON helper so the body is genuinely unparseable.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('groq.com')) {
+        return new Response('<html>gateway error</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      return original(input, init);
+    }) as typeof fetch;
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+    assert.equal(result.mode, 'demo');
+    assert.ok(result.modeReason.includes('unusable response'));
+  });
+
+  it('degrades to demo when the response carries no message content', async () => {
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerBody: { choices: [] } });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+    assert.equal(result.mode, 'demo');
+  });
+});
+
 describe('runAnalysis — model misbehaviour degrades to demo', () => {
   it('falls back when the model returns prose instead of JSON', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: 'I am not able to provide investment analysis.' });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: 'I am not able to provide investment analysis.' });
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
@@ -120,8 +277,8 @@ describe('runAnalysis — model misbehaviour degrades to demo', () => {
   });
 
   it('falls back when the model answers about the wrong ticker', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: modelAnalysis({ ticker: 'TSLA' }) });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: modelAnalysis({ ticker: 'TSLA' }) });
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
@@ -130,32 +287,24 @@ describe('runAnalysis — model misbehaviour degrades to demo', () => {
   });
 
   it('falls back when the model returns an out-of-band confidence', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: modelAnalysis({ confidence: 940 }) });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: modelAnalysis({ confidence: 940 }) });
 
     const result = await runAnalysis(REQUEST, await snapshot());
     assert.equal(result.mode, 'demo');
   });
 
   it('falls back when the model returns the wrong number of risks', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: modelAnalysis({ risks: ['Only one risk.'] }) });
-
-    const result = await runAnalysis(REQUEST, await snapshot());
-    assert.equal(result.mode, 'demo');
-  });
-
-  it('falls back when the model refuses the request', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: '', modelStopReason: 'refusal' });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: modelAnalysis({ risks: ['Only one risk.'] }) });
 
     const result = await runAnalysis(REQUEST, await snapshot());
     assert.equal(result.mode, 'demo');
   });
 
   it('logs the failure detail server-side without exposing it to the user', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ modelText: modelAnalysis({ ticker: 'TSLA' }) });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ modelText: modelAnalysis({ ticker: 'TSLA' }) });
 
     const result = await runAnalysis(REQUEST, await snapshot());
 
@@ -169,8 +318,8 @@ describe('runAnalysis — model misbehaviour degrades to demo', () => {
 
 describe('runAnalysis — market data failures are fatal', () => {
   it('propagates the market error rather than inventing a price', async () => {
-    process.env.AI_API_KEY = 'test-ai-key';
-    restoreFetch = stubFetch({ marketStatus: 503 });
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ marketStatus: 503 });
 
     await assert.rejects(
       async () => runAnalysis(REQUEST, await snapshot()),
@@ -185,7 +334,7 @@ describe('runAnalysis — market data failures are fatal', () => {
 
 describe('getMarketSnapshot — integration', () => {
   it('assembles a snapshot from the stubbed provider', async () => {
-    restoreFetch = stubFetch();
+    stubWith();
     const snap = await snapshot();
 
     assert.equal(snap.quote.ticker, 'AAPL');
@@ -198,7 +347,7 @@ describe('getMarketSnapshot — integration', () => {
   });
 
   it('never claims a separate extended-hours quote is available', async () => {
-    restoreFetch = stubFetch();
+    stubWith();
     const snap = await snapshot();
 
     assert.equal(snap.quote.afterHoursAvailable, false);
@@ -206,7 +355,7 @@ describe('getMarketSnapshot — integration', () => {
   });
 
   it('derives the session from the quote timestamp, not the wall clock', async () => {
-    restoreFetch = stubFetch();
+    stubWith();
     const snap = await snapshot();
 
     assert.equal(snap.quote.session.phase, sessionFor(TIMESTAMP).phase);

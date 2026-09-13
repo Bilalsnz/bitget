@@ -26,6 +26,20 @@ import { HOLDING_PERIODS } from '../types';
  * makes it harmless if it happens anyway. Never remove the validator on the
  * grounds that the schema "guarantees" the shape — a guarantee from a remote
  * service is not a guarantee.
+ *
+ * ## Why there are no numeric bounds here
+ *
+ * The keyword set that structured-output strict mode accepts is narrower than
+ * JSON Schema's. Bounds such as `minItems`, `maxItems`, `minimum` and `maximum`
+ * are commonly rejected, and a rejected schema is the worst outcome available:
+ * it fails the whole request rather than a field, so every analysis would fall
+ * back to the demo engine while the UI reported nothing wrong.
+ *
+ * So the bounds live in the descriptions — where a capable model still reads
+ * them — and are *enforced* by `validateAnalysis`, which counts the reasons and
+ * range-checks the confidence before anything renders. `required` covering
+ * every property and `additionalProperties: false` are both kept: those are the
+ * two keywords strict mode genuinely needs.
  */
 export const ANALYSIS_JSON_SCHEMA = {
   type: 'object',
@@ -41,9 +55,7 @@ export const ANALYSIS_JSON_SCHEMA = {
     },
     confidence: {
       type: 'integer',
-      minimum: 0,
-      maximum: 100,
-      description: 'How well-evidenced this call is. 0-100. Not how strong the signal is.',
+      description: 'How well-evidenced this call is, as a whole number from 0 to 100 inclusive. Not how strong the signal is.',
     },
     whatChanged: {
       type: 'string',
@@ -51,17 +63,13 @@ export const ANALYSIS_JSON_SCHEMA = {
     },
     reasons: {
       type: 'array',
-      minItems: 3,
-      maxItems: 3,
       items: { type: 'string' },
-      description: 'Exactly three supporting reasons, each 12-220 characters.',
+      description: 'Exactly three supporting reasons. Emit exactly three. Each 12-220 characters.',
     },
     risks: {
       type: 'array',
-      minItems: 3,
-      maxItems: 3,
       items: { type: 'string' },
-      description: 'Exactly three risks that would invalidate the call, each 12-220 characters.',
+      description: 'Exactly three risks that would invalidate the call. Emit exactly three. Each 12-220 characters.',
     },
     suggestedExposure: {
       type: 'string',
@@ -71,6 +79,22 @@ export const ANALYSIS_JSON_SCHEMA = {
   },
   required: ['ticker', 'verdict', 'confidence', 'whatChanged', 'reasons', 'risks', 'suggestedExposure'],
   additionalProperties: false,
+} as const;
+
+/**
+ * The `response_format` value sent to the provider.
+ *
+ * Groq uses OpenAI's wire shape: `json_schema` nested under a `json_schema`
+ * key carrying a name and a `strict` flag. The name is only a label the server
+ * echoes back; the schema is the contract.
+ */
+export const ANALYSIS_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'research_analysis',
+    strict: true,
+    schema: ANALYSIS_JSON_SCHEMA,
+  },
 } as const;
 
 /* ------------------------------------------------------------------- prompts */
@@ -104,14 +128,26 @@ export function buildSystemPrompt(): string {
     '   You must never state, estimate, recall or infer a price, percentage, volume, market cap or index level',
     '   that is not written there. If a figure is absent, say it is unavailable — do not fill the gap.',
     '2. You must never claim to know the content of a news story you were not given. Headlines supplied in the',
-    '   MARKET DATA block may be referenced, but only for what they literally say. No invented context, no',
-    '   invented earnings results, no invented analyst actions, no invented deals.',
+    '   MARKET DATA block are yours to interpret, but only for what they literally say. No invented context, no',
+    '   invented earnings results, no invented analyst actions, no invented deals, no invented dates.',
     '3. Do not invent an after-hours or pre-market price. The data block states plainly whether a distinct',
     '   extended-hours quote exists. If it does not, treat the quoted price as the most recent available print',
     '   and say so rather than describing it as an after-hours move.',
     '4. Never describe a position size in currency, share count or portfolio percentage. Exposure is reported',
     '   only as one of the three allowed categories.',
     '5. Write plainly and specifically. No hype, no hedging filler, no emoji, no markdown formatting.',
+    '',
+    '## Using the headlines',
+    '',
+    'When headlines are supplied, use them. A headline is evidence about *why* the price moved, and the analysis',
+    'is worth considerably less if it only describes the move back to the reader. For each headline that bears',
+    'on this instrument, say what it actually implies for the stated holding period and whether it supports or',
+    'undercuts the price action.',
+    '',
+    'Do not merely count headlines, do not call them "recent news" without saying what they mean, and do not',
+    'treat the presence of news as significance in itself. A headline that is irrelevant to the price move is',
+    'worth saying so about. If no headlines were retrieved, ground the analysis in price, range and session',
+    'alone, and say the catalyst is not visible in the data — never invent one.',
     '',
     '## How to choose a verdict',
     '',
@@ -154,6 +190,16 @@ function fmt(value: number | null, unit: 'usd' | 'pct' = 'usd'): string {
 function marketDataBlock(snapshot: MarketSnapshot): string {
   const { quote } = snapshot;
 
+  // The session range is derived here, in the data layer, from two real prints —
+  // never left to the model to subtract. Where the move sits inside its own
+  // range is often the whole story (a close at the low is a different signal
+  // from the same percentage gain closing at the high), so it is worth handing
+  // over explicitly rather than hoping it gets computed correctly.
+  const range =
+    quote.high !== null && quote.low !== null && Number.isFinite(quote.high - quote.low)
+      ? `${fmt(quote.low)} to ${fmt(quote.high)} (spread ${fmt(quote.high - quote.low)})`
+      : 'unavailable';
+
   const lines = [
     `Ticker: ${quote.ticker}`,
     `Data source: ${snapshot.dataSource}`,
@@ -164,6 +210,7 @@ function marketDataBlock(snapshot: MarketSnapshot): string {
     `Session open: ${fmt(quote.open)}`,
     `Session high: ${fmt(quote.high)}`,
     `Session low: ${fmt(quote.low)}`,
+    `Session range: ${range}`,
     `Quote timestamp: ${quote.asOf ?? 'unavailable'}`,
     `Session at that timestamp: ${quote.session.label}`,
     `New York time of that print: ${quote.session.etTime}`,

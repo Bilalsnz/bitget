@@ -12,7 +12,7 @@
  */
 
 import { errorResponse, jsonResponse } from '@/lib/api';
-import { aiKeySource, aiModel, hasAiKey } from '@/lib/ai/provider';
+import { AI_PROVIDER, aiKeySource, aiModel, hasAiKey } from '@/lib/ai/provider';
 import { hasMarketKey, marketKeyStatus } from '@/lib/market/finnhub';
 import { currentSession } from '@/lib/market/session';
 import { SUPPORTED_TICKERS } from '@/lib/assets';
@@ -47,10 +47,15 @@ export async function GET(request: Request): Promise<Response> {
       },
       ai: {
         configured: aiConfigured,
+        provider: AI_PROVIDER,
         model: aiModel(),
         keyVariable: aiKeySource(),
+        // Stated first because it is the question a judge or an operator is
+        // actually asking: is the analysis in front of me generated, or
+        // deterministic? The UI labels every card either way.
+        label: aiConfigured ? `AI analysis · ${AI_PROVIDER}` : 'Demo analysis',
         fallback:
-          'When no AI credential is configured, analyses are produced by the deterministic demo engine and labelled as such.',
+          'When no AI credential is configured, when the provider errors or times out, or when its response fails schema validation, analyses are produced by the deterministic demo engine and labelled as such.',
       },
       supportedInstruments: SUPPORTED_TICKERS.length,
     };

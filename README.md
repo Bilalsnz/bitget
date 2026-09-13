@@ -36,13 +36,12 @@ opens devtools.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `FINNHUB_API_KEY` | **Yes** | Market data. Free key: <https://finnhub.io/register> |
-| `AI_API_KEY` | No | Analysis model credential. Without it, the labelled demo engine answers. |
-| `AI_MODEL` | No | Model id for live analysis. Defaults to `claude-opus-5`. |
-| `ANTHROPIC_API_KEY` | No | Alternative name for `AI_API_KEY`. `AI_API_KEY` wins if both are set. |
+| `GROQ_API_KEY` | No | Analysis model credential. Free key: <https://console.groq.com/keys>. Without it, the labelled demo engine answers. |
+| `AI_MODEL` | No | Model id for live analysis. Defaults to `openai/gpt-oss-20b`. |
 
 ### Deploying to Vercel
 
-Add `FINNHUB_API_KEY` (and optionally `AI_API_KEY`) under
+Add `FINNHUB_API_KEY` (and optionally `GROQ_API_KEY`) under
 **Project → Settings → Environment Variables**, then redeploy. Nothing else is
 needed — no database, no auth provider, no paid infrastructure.
 
@@ -173,13 +172,13 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 110 tests
+npm test           # node --test, 135 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-110 tests cover the places where a bug would be a *correctness* problem rather
+135 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
@@ -195,21 +194,32 @@ than a cosmetic one:
 - **`request.test.ts`** — the input boundary, including the distinction between
   a malformed symbol and a well-formed one we do not cover.
 - **`analyze.test.ts`** — the full pipeline, market adapter through mode
-  selection, with `fetch` stubbed at the network boundary. The Anthropic SDK
-  uses `fetch` underneath, so one seam covers both providers and nothing that
-  ships is replaced by a fake.
+  selection, with `fetch` stubbed at the network boundary. Both upstreams are
+  reached through `fetch` directly, so one seam covers the market adapter and
+  the model provider, and nothing that ships is replaced by a fake. The
+  outbound provider request is asserted too — the prompt has to carry the real
+  figures, or "the model must not invent numbers" is untestable.
 - **`routes.test.ts`** — the HTTP contract: status codes, error envelope,
-  cache headers, and that no credential or provider message reaches a body.
+  cache headers, health reporting, and that no credential or provider message
+  reaches a body.
 
 ### What the tests do not cover
 
-Live Finnhub was never called during development, because that needs a real
-key. Every market-data assertion runs against a stand-in that speaks the
-documented `/quote`, `/stock/profile2`, `/company-news` and
-`/stock/market-status` shapes. The response *shapes* come from Finnhub's own
-OpenAPI spec; the *values* are fixtures. Confirm the live path on a deployment
-with `GET /api/health?probe=1`, which makes one real call and reports only the
-resulting code.
+Neither upstream was called live during development, because both need real
+keys.
+
+Every market-data assertion runs against a stand-in that speaks the documented
+`/quote`, `/stock/profile2`, `/company-news` and `/stock/market-status` shapes.
+The response *shapes* come from Finnhub's own OpenAPI spec; the *values* are
+fixtures. Confirm the live path on a deployment with `GET /api/health?probe=1`,
+which makes one real call and reports only the resulting code.
+
+The provider tests are the same in kind: the stand-in speaks Groq's
+chat-completions shape, taken from its published reference, and nothing here
+proves what the live endpoint would return today. Because the request cannot be
+made from a test, the code does not assume the live endpoint accepts our
+`json_schema` response format — it handles the refusal explicitly, retrying
+without the schema, and the validator gates the result either way.
 
 ## Licence and disclaimer
 
