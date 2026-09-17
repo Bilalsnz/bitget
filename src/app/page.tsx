@@ -7,6 +7,7 @@
  * is no hero to scroll past.
  */
 
+import { BitgetAlignment } from '@/components/BitgetAlignment';
 import { MarketStatusPill } from '@/components/MarketStatusPill';
 import { ResearchDesk } from '@/components/ResearchDesk';
 
@@ -88,6 +89,9 @@ export default function Page() {
             ))}
           </div>
         </section>
+
+        {/* -------------------------------------------- where Bitget fits in */}
+        <BitgetAlignment />
 
         {/* ---------------------------------------------- what this is not */}
         <section className="mt-8 rounded-xl2 border border-verdict-avoid/30 bg-verdict-avoid/[0.06] p-4 sm:p-5">

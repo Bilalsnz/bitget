@@ -111,10 +111,21 @@ Finnhub key is sent as an `X-Finnhub-Token` header rather than a query
 parameter, so it cannot leak into a URL, a proxy log or a `Referer`. Provider
 error text is logged server-side and never placed in a response body.
 
-**No Bitget claims.** Nothing in this project verifies that any equity is
-tokenised on Bitget, so the app makes no such claim and integrates no Bitget
-trading API. The instrument list in `src/lib/assets.ts` deliberately has no
-tokenised-symbol field.
+**No fabricated Bitget integration.** The app holds no Bitget account, calls no
+Bitget trading API, and reads no Bitget listing feed. Its one Bitget-facing
+surface is a panel that states the *rhythm* difference between the two markets:
+US equities are open 390 minutes a day, five days a week — about 19% of the
+week — while crypto venues do not close. That arithmetic is derived from the
+same constants the session classifier uses (`src/lib/tradingHours.ts`), so it
+cannot drift out of agreement with the hours the app actually keeps, and a test
+asserts the two still match.
+
+It deliberately names **no tokenized symbol per instrument.** A mapping like
+`NVDA → rNVDA` reads like an integration while being a guess, and the audience
+best placed to catch a wrong ticker is the sponsor reading the submission. The
+panel says instead that whether an instrument has a tokenized counterpart — and
+what it is called — is a question for Bitget, and links there. The instrument
+list in `src/lib/assets.ts` still has no tokenised-symbol field.
 
 ---
 
@@ -137,6 +148,7 @@ src/
 │   ├── ResearchCard.tsx        the assembled answer, in reading order
 │   ├── DataProvenance.tsx      source + exact quote timestamp, on every card
 │   ├── MarketSnapshotPanel.tsx the evidence table (never model-generated)
+│   ├── BitgetAlignment.tsx     the 24/7 contrast — no ticker claims
 │   ├── BriefActions.tsx        client · copy / native share, text only
 │   ├── BriefHistory.tsx        the last five briefs, stored locally
 │   ├── Indicators.tsx          verdict, confidence, exposure, mode banner
@@ -150,6 +162,7 @@ src/
 │   ├── schema.ts               strict model-output validation
 │   ├── brief.ts                brief → plain text, for copy and share
 │   ├── history.ts              localStorage-backed recent briefs
+│   ├── tradingHours.ts         how much of the week the market is open
 │   ├── request.ts              the input boundary
 │   ├── api.ts                  response helpers
 │   ├── market/
@@ -166,6 +179,7 @@ src/
 │   ├── schema.test.ts
 │   ├── brief.test.ts
 │   ├── history.test.ts
+│   ├── tradingHours.test.ts
 │   └── request.test.ts
 └── test-support/
     ├── finnhub-stub.ts         shared provider fixtures + the fetch seam
@@ -200,13 +214,13 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 195 tests
+npm test           # node --test, 203 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-195 tests cover the places where a bug would be a *correctness* problem rather
+203 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
@@ -231,6 +245,11 @@ than a cosmetic one:
   malformed JSON, entries that are not briefs, a write that throws on quota.
   All of them have to end in a rendered page, so the tests assert that none of
   them throw.
+- **`tradingHours.test.ts`** — the arithmetic behind the Bitget panel, checked
+  against the session classifier rather than against itself. Two of its cases
+  assert that 09:30 and 16:00 ET classify as the app says they do, so if the
+  regular session ever moves, the panel is caught claiming hours the app no
+  longer keeps rather than quietly overstating the market's availability.
 - **`request.test.ts`** — the input boundary, including the distinction between
   a malformed symbol and a well-formed one we do not cover.
 - **`analyze.test.ts`** — the full pipeline, market adapter through mode

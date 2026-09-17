@@ -13,9 +13,16 @@
 
 import type { SessionInfo, SessionPhase } from '../types';
 
-/** Regular session: 09:30–16:00 ET. */
-const REGULAR_OPEN_MIN = 9 * 60 + 30;
-const REGULAR_CLOSE_MIN = 16 * 60;
+/**
+ * Regular session: 09:30–16:00 ET.
+ *
+ * Exported so anything that needs to describe the session's *length* — the
+ * Bitget alignment panel does — reads the same numbers this classifier uses,
+ * rather than restating "6.5 hours" in a string that can silently drift out of
+ * agreement with it.
+ */
+export const REGULAR_OPEN_MIN = 9 * 60 + 30;
+export const REGULAR_CLOSE_MIN = 16 * 60;
 /** Extended hours: 04:00–09:30 and 16:00–20:00 ET. */
 const PRE_OPEN_MIN = 4 * 60;
 const AFTER_CLOSE_MIN = 20 * 60;
