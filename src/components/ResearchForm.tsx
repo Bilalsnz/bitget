@@ -16,6 +16,8 @@ import { useEffect, useId, useState } from 'react';
 import { ASSETS } from '@/lib/assets';
 import { HOLDING_PERIODS, RISK_STYLES, type HoldingPeriodId, type ResearchRequest, type RiskStyle } from '@/lib/types';
 
+import { BitgetChipTag } from './BitgetCounterpart';
+
 /**
  * The form's DOM id.
  *
@@ -122,7 +124,8 @@ export function ResearchForm({
                     : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-white/25 hover:text-slate-100'
                 }`}
               >
-                {asset.ticker}
+                <span className="block leading-tight">{asset.ticker}</span>
+                <BitgetChipTag ticker={asset.ticker} />
               </button>
             );
           })}

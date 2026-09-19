@@ -6,27 +6,32 @@
  * The brief for this hackathon is a Bitget one, so the app should say plainly
  * where its subject matter meets Bitget's. It does that here — by explaining
  * the *rhythm* difference between the two markets, which is the whole reason a
- * desk named AfterHours exists.
+ * desk named AfterHours exists — and by naming the tokenized counterpart each
+ * instrument has on Bitget, on the cards where the instrument appears.
  *
- * What it does not do is name a tokenized symbol for each instrument. The
- * temptation is real and the payoff looks free: `NVDA → rNVDA` next to every
- * ticker reads like an integration. It is not one. This app has no Bitget API
- * client, no listing feed and no way to know which equities a venue has
- * tokenized today, or under what symbol. A mapping written from memory would be
- * a guess presented as a product fact — and the audience best equipped to spot
- * a wrong ticker is the sponsor reading the submission.
+ * ## Why the tickers in `assets.ts` are trustworthy and this code is not clever
  *
- * So the panel states three things it can stand behind, and says so when it
- * cannot:
+ * An earlier version of this panel named no symbols at all, on the grounds that
+ * a mapping written from memory is a guess wearing a product fact's clothes.
+ * That reasoning was right; the conclusion changed only because the mapping
+ * stopped being written from memory. Every `bitget` entry in `lib/assets.ts` was
+ * read off live exchange data — the symbol *and* the canonical market URL, so
+ * neither can drift from a typo — and `bitget.test.ts` asserts the invariants
+ * that keep it that way.
  *
- *   1. The arithmetic. US equities are open 390 minutes a day, five days a
- *      week — around a fifth of the week. Derived in `lib/tradingHours.ts` from
- *      the same constants the session classifier uses, so it cannot drift.
- *   2. The contrast. Crypto venues do not close. That is true of the market as
- *      a category and is not a claim about any specific listing.
- *   3. The limit. Whether a given instrument has a tokenized counterpart, and
- *      what it is called, is a question for Bitget — with a link, so the reader
- *      can go and check rather than take our word for it.
+ * The check earned its keep immediately: **AAPL has no tokenized counterpart on
+ * Bitget.** The example everyone reaches for — `AAPL → rAAPL` — does not exist;
+ * that symbol belongs to an unrelated project. So this panel states the coverage
+ * rather than implying the pattern is total, and the app shows the counterpart
+ * only where one was actually verified.
+ *
+ * ## The important limit
+ *
+ * This is a **static, dated list, not an integration.** The app holds no Bitget
+ * account, calls no Bitget API, and reads no Bitget listing feed at runtime. A
+ * venue can list, delist or rename a tokenized equity at any time, and this page
+ * would not know. That is why the panel carries the date it was verified and
+ * says so, rather than presenting the mapping as live.
  *
  * The non-integration notice is the load-bearing part. Every other sentence
  * here is context; that one is the difference between a product and a pretence.
@@ -34,12 +39,22 @@
  * Server-rendered: this is static copy and ships no JavaScript.
  */
 
+import { ASSETS } from '@/lib/assets';
 import { weekSplit, WEEKLY_REGULAR_HOURS, HOURS_PER_WEEK } from '@/lib/tradingHours';
 
 const BITGET_URL = 'https://www.bitget.com/';
 
+/** The date the counterpart list was last read off live exchange data. */
+const VERIFIED_ON = '19 September 2026';
+
 export function BitgetAlignment() {
   const { open, closed } = weekSplit();
+  // `flatMap` rather than `filter`: it narrows the type as it goes, so the
+  // entries below are known to carry `bitget` without a non-null assertion.
+  const pairs = ASSETS.flatMap((asset) =>
+    asset.bitget ? [{ ticker: asset.ticker, ...asset.bitget }] : [],
+  );
+  const missing = ASSETS.filter((asset) => !asset.bitget).map((asset) => asset.ticker);
 
   return (
     <section
@@ -92,9 +107,50 @@ export function BitgetAlignment() {
 
         <p>
           Tokenized-equity products, where an exchange lists them, are designed to follow that
-          continuous schedule rather than the equity one. Whether a particular instrument has such
-          a counterpart, and what symbol it carries, is something to confirm with Bitget directly —
-          this app does not read Bitget&rsquo;s listings and will not guess a ticker for you.
+          continuous schedule rather than the equity one. Where an instrument on this desk has such
+          a counterpart on Bitget, the card names it and links to it, so you can go and look rather
+          than take our word for it.
+        </p>
+      </div>
+
+      {/* ------------------------------------------------------ coverage */}
+      <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5">
+        <p className="text-xs font-semibold text-slate-100">
+          Tokenized counterparts, as verified on {VERIFIED_ON}
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-300">
+          {pairs.length} of the {ASSETS.length} instruments on this desk have one. Each opens that
+          market on bitget.com.
+        </p>
+        <ul className="mt-2.5 flex flex-wrap gap-1.5">
+          {pairs.map((pair) => (
+            <li key={pair.ticker}>
+              <a
+                href={pair.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${pair.ticker} → ${pair.symbol} on Bitget — opens bitget.com in a new tab`}
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 font-mono text-[0.7rem] transition hover:border-accent-cyan/50 hover:text-slate-100"
+              >
+                <span className="text-slate-400">{pair.ticker}</span>
+                <span aria-hidden="true" className="text-slate-600">
+                  →
+                </span>
+                <span className="font-bold text-accent-cyan">{pair.symbol}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2.5 text-xs leading-relaxed text-slate-400">
+          {missing.join(', ')} — no counterpart could be found for{' '}
+          {missing.length === 1 ? 'this instrument' : 'these instruments'}. Apple is the one people
+          expect to see here, and it is genuinely not offered; the example everyone reaches for does
+          not exist.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
+          This is a static list read off live exchange data on that date, not a live feed. Bitget can
+          list, delist or rename a tokenized equity at any time and this page would not know. Treat a
+          symbol here as a starting point to verify, not as a guarantee.
         </p>
       </div>
 

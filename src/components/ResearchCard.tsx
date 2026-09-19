@@ -14,6 +14,7 @@ import { getAsset } from '@/lib/assets';
 import { HOLDING_PERIODS, type ResearchResult } from '@/lib/types';
 
 import { BriefActions } from './BriefActions';
+import { BitgetCounterpart } from './BitgetCounterpart';
 import { DataProvenance } from './DataProvenance';
 import { ConfidenceMeter, ExposureBadge, ModeIndicator, VerdictBadge } from './Indicators';
 import { MarketSnapshotPanel } from './MarketSnapshotPanel';
@@ -84,6 +85,11 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
             <p className="mt-1 text-xs text-slate-500">
               {holding?.label ?? request.holdingPeriod} · {holding?.hint} · {request.risk} risk profile
             </p>
+            {asset?.bitget ? (
+              <div className="mt-2.5">
+                <BitgetCounterpart ticker={request.ticker} />
+              </div>
+            ) : null}
           </div>
         </div>
 

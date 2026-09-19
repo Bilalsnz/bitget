@@ -112,20 +112,35 @@ parameter, so it cannot leak into a URL, a proxy log or a `Referer`. Provider
 error text is logged server-side and never placed in a response body.
 
 **No fabricated Bitget integration.** The app holds no Bitget account, calls no
-Bitget trading API, and reads no Bitget listing feed. Its one Bitget-facing
-surface is a panel that states the *rhythm* difference between the two markets:
-US equities are open 390 minutes a day, five days a week — about 19% of the
-week — while crypto venues do not close. That arithmetic is derived from the
-same constants the session classifier uses (`src/lib/tradingHours.ts`), so it
-cannot drift out of agreement with the hours the app actually keeps, and a test
-asserts the two still match.
+Bitget trading API, and reads no Bitget listing feed. Its two Bitget-facing
+surfaces are a panel that states the *rhythm* difference between the two
+markets, and the tokenized counterpart named on each instrument's card.
 
-It deliberately names **no tokenized symbol per instrument.** A mapping like
-`NVDA → rNVDA` reads like an integration while being a guess, and the audience
-best placed to catch a wrong ticker is the sponsor reading the submission. The
-panel says instead that whether an instrument has a tokenized counterpart — and
-what it is called — is a question for Bitget, and links there. The instrument
-list in `src/lib/assets.ts` still has no tokenised-symbol field.
+The rhythm arithmetic is derived from the same constants the session classifier
+uses (`src/lib/tradingHours.ts`), so it cannot drift out of agreement with the
+hours the app actually keeps, and a test asserts the two still match.
+
+**Tokenized counterparts are verified, dated, and dated as static.** Where an
+instrument on the desk has an rStock on Bitget, the card names it (`NVDA →
+rNVDA`), labels it "24/7 on Bitget", and links to that market. Every symbol and
+URL in `src/lib/assets.ts` was read off live exchange listing data — the URL is
+the exchange's own canonical market page, so a wrong ticker cannot arrive via a
+typo or a guess. The panel states the date it was verified and says plainly that
+it is a static list, not a live feed: a venue can list, delist or rename a
+tokenized equity at any time and this page would not know.
+
+**One instrument deliberately has no counterpart: AAPL.** The mapping everyone
+assumes — `AAPL → rAAPL` — does not exist; that symbol belongs to an unrelated
+project, and Apple is not in the issuer's lineup. It is the single most likely
+place for a plausible wrong answer to enter this app, so `bitget.test.ts` pins
+its absence and fails if someone adds it back.
+
+The badge links out and carries **no price**. The app does not fetch a quote for
+`rNVDA`, compare the two, or know what the tokenized market is doing; a figure
+there would come from nowhere, and a reader would have no way to tell. The badge
+also does not claim the instruments are equivalent — a tokenized equity tracks a
+price, and is not a share.
+
 
 ---
 
@@ -148,7 +163,8 @@ src/
 │   ├── ResearchCard.tsx        the assembled answer, in reading order
 │   ├── DataProvenance.tsx      source + exact quote timestamp, on every card
 │   ├── MarketSnapshotPanel.tsx the evidence table (never model-generated)
-│   ├── BitgetAlignment.tsx     the 24/7 contrast — no ticker claims
+│   ├── BitgetAlignment.tsx     the 24/7 contrast + verified counterpart list
+│   ├── BitgetCounterpart.tsx   the tappable rStock badge on a card
 │   ├── BriefActions.tsx        client · copy / native share, text only
 │   ├── BriefHistory.tsx        the last five briefs, stored locally
 │   ├── Indicators.tsx          verdict, confidence, exposure, mode banner
@@ -157,7 +173,7 @@ src/
 │   └── ErrorNotice.tsx         friendly error surface
 ├── lib/
 │   ├── types.ts                the domain contract
-│   ├── assets.ts               curated instrument list
+│   ├── assets.ts               curated instrument list + verified rStock map
 │   ├── errors.ts               typed errors → friendly copy, no internals
 │   ├── schema.ts               strict model-output validation
 │   ├── brief.ts                brief → plain text, for copy and share
@@ -180,6 +196,7 @@ src/
 │   ├── brief.test.ts
 │   ├── history.test.ts
 │   ├── tradingHours.test.ts
+│   ├── bitget.test.ts
 │   └── request.test.ts
 └── test-support/
     ├── finnhub-stub.ts         shared provider fixtures + the fetch seam
@@ -214,13 +231,13 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 203 tests
+npm test           # node --test, 211 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-203 tests cover the places where a bug would be a *correctness* problem rather
+211 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
@@ -250,6 +267,12 @@ than a cosmetic one:
   assert that 09:30 and 16:00 ET classify as the app says they do, so if the
   regular session ever moves, the panel is caught claiming hours the app no
   longer keeps rather than quietly overstating the market's availability.
+- **`bitget.test.ts`** — the tokenized-counterpart mapping, tested for *provenance*
+  rather than behaviour. A symbol has to match its ticker and a URL has to match
+  its symbol, and the set of mapped instruments has to equal the set that was
+  actually verified — so adding one is a deliberate edit to the test, not a diff
+  that slips through. It also asserts that AAPL has *no* counterpart, pinning the
+  most likely plausible-wrong answer in the file.
 - **`request.test.ts`** — the input boundary, including the distinction between
   a malformed symbol and a well-formed one we do not cover.
 - **`analyze.test.ts`** — the full pipeline, market adapter through mode

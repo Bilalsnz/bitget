@@ -5,11 +5,25 @@
  * every ticker on Earth covers none of them well, and the free market-data
  * tier rewards a known set of liquid US names.
  *
- * `bitgetSymbol` is intentionally absent everywhere: nothing in this project
- * verifies that a given equity is tokenised on Bitget, and the spec is explicit
- * that we must not claim a tokenised listing the data does not confirm. When a
- * verified mapping exists, add it here as an optional field — the rest of the
- * app reads assets through the helpers below, so nothing else has to change.
+ * ## `bitget`, and why it is optional
+ *
+ * `bitget` records the tokenized-equity counterpart an instrument has on Bitget
+ * — the "rStock" line, e.g. NVDA → rNVDA. It is **optional on purpose**, and its
+ * absence is meaningful: it means no counterpart could be verified, not that one
+ * was skipped.
+ *
+ * Every entry here was read off live exchange data, not written from memory.
+ * The rule this project applies is that a tokenized-listing claim needs a
+ * listing to point at: the symbol and the URL both come from the exchange's own
+ * market record, so a wrong ticker cannot be introduced by a typo or a guess.
+ * The one instrument in this list with no `bitget` field is AAPL — Apple's
+ * tokenized counterpart does not exist on Bitget, despite being the example
+ * everyone reaches for. `bitget.test.ts` pins that fact so an "obvious" fix
+ * cannot quietly add it back.
+ *
+ * When a verified mapping exists, add it here as an optional field — the rest
+ * of the app reads assets through the helpers below, so nothing else has to
+ * change.
  */
 
 export type Asset = {
@@ -23,6 +37,16 @@ export type Asset = {
   kind: 'equity' | 'etf';
   /** Broad sector — gives the analysis layer context without a second API call. */
   sector: string;
+  /**
+   * The tokenized counterpart listed on Bitget, when one could be verified.
+   *
+   * `symbol` is Bitget's own display form (lowercase `r`, uppercase ticker —
+   * `rNVDA`); `url` is the canonical market page. Absent means unverified.
+   */
+  bitget?: {
+    symbol: string;
+    url: string;
+  };
 };
 
 export const ASSETS: readonly Asset[] = [
@@ -39,6 +63,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Electric vehicles, energy storage and autonomy.',
     kind: 'equity',
     sector: 'Automotive',
+    bitget: { symbol: 'rTSLA', url: 'https://www.bitget.com/spot/rTSLAUSDT' },
   },
   {
     ticker: 'NVDA',
@@ -46,6 +71,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Accelerated computing and AI data-centre silicon.',
     kind: 'equity',
     sector: 'Semiconductors',
+    bitget: { symbol: 'rNVDA', url: 'https://www.bitget.com/spot/rNVDAUSDT' },
   },
   {
     ticker: 'MSFT',
@@ -53,6 +79,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Cloud infrastructure, productivity software and AI platforms.',
     kind: 'equity',
     sector: 'Technology',
+    bitget: { symbol: 'rMSFT', url: 'https://www.bitget.com/spot/rMSFTUSDT' },
   },
   {
     ticker: 'AMZN',
@@ -60,6 +87,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'E-commerce, logistics and AWS cloud computing.',
     kind: 'equity',
     sector: 'Consumer Discretionary',
+    bitget: { symbol: 'rAMZN', url: 'https://www.bitget.com/spot/rAMZNUSDT' },
   },
   {
     ticker: 'META',
@@ -67,6 +95,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Social platforms and digital advertising.',
     kind: 'equity',
     sector: 'Communication Services',
+    bitget: { symbol: 'rMETA', url: 'https://www.bitget.com/spot/rMETAUSDT' },
   },
   {
     ticker: 'GOOGL',
@@ -74,6 +103,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Search, advertising, cloud and AI research.',
     kind: 'equity',
     sector: 'Communication Services',
+    bitget: { symbol: 'rGOOGL', url: 'https://www.bitget.com/spot/rGOOGLUSDT' },
   },
   {
     ticker: 'NFLX',
@@ -81,6 +111,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Streaming entertainment and content production.',
     kind: 'equity',
     sector: 'Communication Services',
+    bitget: { symbol: 'rNFLX', url: 'https://www.bitget.com/spot/rNFLXUSDT' },
   },
   {
     ticker: 'AMD',
@@ -88,6 +119,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'CPUs, GPUs and data-centre accelerators.',
     kind: 'equity',
     sector: 'Semiconductors',
+    bitget: { symbol: 'rAMD', url: 'https://www.bitget.com/spot/rAMDUSDT' },
   },
   {
     ticker: 'COIN',
@@ -95,6 +127,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Crypto exchange and custody — a high-beta digital-asset proxy.',
     kind: 'equity',
     sector: 'Financials',
+    bitget: { symbol: 'rCOIN', url: 'https://www.bitget.com/spot/rCOINUSDT' },
   },
   {
     ticker: 'MSTR',
@@ -102,6 +135,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Enterprise software with a large bitcoin treasury position.',
     kind: 'equity',
     sector: 'Technology',
+    bitget: { symbol: 'rMSTR', url: 'https://www.bitget.com/spot/rMSTRUSDT' },
   },
   {
     ticker: 'SPY',
@@ -109,6 +143,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Broad US large-cap equity index exposure.',
     kind: 'etf',
     sector: 'Index',
+    bitget: { symbol: 'rSPY', url: 'https://www.bitget.com/spot/rSPYUSDT' },
   },
 ] as const;
 
