@@ -84,11 +84,31 @@ while still permitting honest statements of the limitation. The check is
 sentence-level, so a correct disclaimer in one sentence cannot license an
 assertion in the next. `findSessionMislabel` is exported and tested directly.
 
+**Two notices, and no more.** The interface carries exactly two disclaimers —
+*"Research only. Not financial advice. No trading."* next to the verdict, and
+*"Regular-session data only (not live after-hours)."* next to the price. Both
+live in `src/lib/disclaimers.ts`, so the card, the snapshot panel and the copied
+brief cannot drift into three phrasings of the same promise, and both are
+asserted in tests against that shared constant rather than a retyped string.
+
+This is a deliberate reversal. The earlier build restated its limits in six
+places — a provenance banner, a decision-stays-with-you panel, a fine-print
+footer, an after-hours notice block, a loading footnote and a three-bullet "what
+this is not" section. That read as defensive rather than confident, and a reader
+who meets six caveats stops reading them. Length is not honesty; the two
+sentences above carry the same two facts, and the enforcement that actually
+matters is in code rather than in copy.
+
 **A brief that leaves the app keeps its context.** "Copy brief" and "Share
 brief" both serialise through `src/lib/brief.ts`, so the text carries the data
-source, the exact quote timestamp, the regular-session notice and the full
-disclaimer into whatever chat it lands in. A copied verdict without them is a
-number in search of a decision.
+source, the exact quote timestamp and both notices into whatever chat it lands
+in. A copied verdict without them is a number in search of a decision.
+
+The regular-session notice is conditional on `afterHoursAvailable` — it
+describes *this plan's* limit, so it must not outlive the limit. It is dropped
+rather than left standing if a plan ever supplies a real extended-hours print.
+The research-only notice is not conditional: it describes what the product is,
+not what one provider returned on one day.
 
 **Nothing persists server-side.** The last five briefs are kept in the reader's
 own `localStorage` and nowhere else. There is no account to attach them to and
@@ -161,7 +181,6 @@ src/
 │   ├── ResearchDesk.tsx        client · request lifecycle, history, sticky bar
 │   ├── ResearchForm.tsx        client · instrument, horizon, risk
 │   ├── ResearchCard.tsx        the assembled answer, in reading order
-│   ├── DataProvenance.tsx      source + exact quote timestamp, on every card
 │   ├── MarketSnapshotPanel.tsx the evidence table (never model-generated)
 │   ├── BitgetAlignment.tsx     the 24/7 contrast + verified counterpart list
 │   ├── BitgetCounterpart.tsx   the tappable rStock badge on a card
@@ -174,6 +193,7 @@ src/
 ├── lib/
 │   ├── types.ts                the domain contract
 │   ├── assets.ts               curated instrument list + verified rStock map
+│   ├── disclaimers.ts          the two notices, in one place
 │   ├── errors.ts               typed errors → friendly copy, no internals
 │   ├── schema.ts               strict model-output validation
 │   ├── brief.ts                brief → plain text, for copy and share
@@ -231,13 +251,13 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 211 tests
+npm test           # node --test, 212 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-211 tests cover the places where a bug would be a *correctness* problem rather
+212 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
@@ -253,11 +273,11 @@ than a cosmetic one:
   validator that gates model output, so "one contract, one validator" is a
   tested property rather than an aspiration.
 - **`brief.test.ts`** — the text that leaves the app. A copied brief arrives
-  without the card's banners or footnotes, so the provenance line and the
-  disclaimer have to be in the text itself; both are asserted verbatim, as is
-  the rule that a missing number renders as "unavailable" rather than "$0.00".
-  The shape guard is checked from both sides, including against a payload
-  produced by the real pipeline and round-tripped through JSON.
+  without the card's two notices, so they have to be in the text itself; both
+  are asserted against the shared constants in `lib/disclaimers.ts`, as is the
+  rule that a missing number renders as "unavailable" rather than "$0.00". The
+  shape guard is checked from both sides, including against a payload produced
+  by the real pipeline and round-tripped through JSON.
 - **`history.test.ts`** — storage the app does not own: unavailable storage,
   malformed JSON, entries that are not briefs, a write that throws on quota.
   All of them have to end in a rendered page, so the tests assert that none of

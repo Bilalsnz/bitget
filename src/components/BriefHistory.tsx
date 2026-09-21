@@ -114,10 +114,7 @@ export function BriefHistory({
         })}
       </ul>
 
-      <p className="mt-3 text-[0.7rem] leading-relaxed text-slate-500">
-        Saved in this browser only — nothing is uploaded and no account is involved. A saved brief
-        is a record of what the tool said when it was written, not a live price.
-      </p>
+      <p className="mt-3 text-[0.7rem] text-slate-500">Saved in this browser only.</p>
     </section>
   );
 }

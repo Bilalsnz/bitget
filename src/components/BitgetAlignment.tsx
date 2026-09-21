@@ -89,29 +89,13 @@ export function BitgetAlignment() {
       </dl>
 
       {/* ------------------------------------------------------ the contrast */}
-      <div className="mt-4 space-y-2.5 text-sm leading-relaxed text-slate-300">
-        <p>
-          US equity markets keep office hours. Everything this desk researches — the close, the
-          move against the previous close, the gap before the next open — happens inside that
-          {' '}
-          {open}% of the week. The other {closed}% is the part the name refers to.
-        </p>
-
-        <p>
-          Crypto venues work the opposite rhythm: they do not close for the night, the weekend, or
-          the holiday. <span className="font-semibold text-slate-100">Bitget</span> runs on that
-          continuous schedule, which is the same twenty-four-hour premise this desk is built
-          around — a market where the hours between one equity session and the next are not dead
-          time but the main event.
-        </p>
-
-        <p>
-          Tokenized-equity products, where an exchange lists them, are designed to follow that
-          continuous schedule rather than the equity one. Where an instrument on this desk has such
-          a counterpart on Bitget, the card names it and links to it, so you can go and look rather
-          than take our word for it.
-        </p>
-      </div>
+      <p className="mt-4 text-sm leading-relaxed text-slate-300">
+        US equities are open for {open}% of the week. The other {closed}% is the part the name
+        refers to — and the part{' '}
+        <span className="font-semibold text-slate-100">Bitget</span>, which never closes, is built
+        for. Where an instrument here has a tokenized counterpart there, its card names it and links
+        to it.
+      </p>
 
       {/* ------------------------------------------------------ coverage */}
       <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.03] p-3.5">
@@ -142,15 +126,11 @@ export function BitgetAlignment() {
           ))}
         </ul>
         <p className="mt-2.5 text-xs leading-relaxed text-slate-400">
-          {missing.join(', ')} — no counterpart could be found for{' '}
-          {missing.length === 1 ? 'this instrument' : 'these instruments'}. Apple is the one people
-          expect to see here, and it is genuinely not offered; the example everyone reaches for does
-          not exist.
+          {missing.join(', ')} — no counterpart found. Apple is the one people expect here; it is
+          genuinely not offered.
         </p>
-        <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          This is a static list read off live exchange data on that date, not a live feed. Bitget can
-          list, delist or rename a tokenized equity at any time and this page would not know. Treat a
-          symbol here as a starting point to verify, not as a guarantee.
+        <p className="mt-2 text-xs text-slate-500">
+          A static list read off exchange data on {VERIFIED_ON}, not a live feed.
         </p>
       </div>
 
@@ -160,9 +140,7 @@ export function BitgetAlignment() {
           No Bitget integration. Nothing here can trade.
         </p>
         <p className="mt-1 text-xs leading-relaxed text-slate-300">
-          AfterHours AI holds no Bitget account, calls no Bitget trading API, and has no listing
-          feed. There is no order button, no wallet and no way to move funds from this page. Every
-          price shown comes from the equity data source named on each card, not from Bitget.
+          No Bitget account, no trading API, no way to move funds from this page.
         </p>
       </div>
 

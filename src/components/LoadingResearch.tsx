@@ -84,10 +84,6 @@ export function LoadingResearch({ ticker }: { ticker: string }) {
           <SkeletonPanel key={index} widths={[88, 76, 82]} delay={index * 110} />
         ))}
       </div>
-
-      <p className="px-1 text-center text-[0.7rem] text-slate-600">
-        Analysis is generated from live market data and can be wrong.
-      </p>
     </div>
   );
 }

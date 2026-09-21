@@ -19,6 +19,7 @@ import { describe, it } from 'node:test';
 import { REQUEST } from '@/test-support/finnhub-stub';
 import { sampleResult } from '@/test-support/result-fixture';
 import { briefSummary, briefTitle, briefToText, isResearchResult } from './brief';
+import { REGULAR_SESSION_NOTICE, RESEARCH_NOTICE } from './disclaimers';
 
 const result = sampleResult();
 
@@ -176,7 +177,7 @@ describe('briefSummary', () => {
     assert.ok(summary.includes('HOLD'));
     assert.ok(summary.includes('62/100'));
     // The line most likely to be read on its own, so the disclaimer is in it.
-    assert.ok(summary.includes('not financial advice'));
+    assert.ok(summary.includes(RESEARCH_NOTICE));
   });
 });
 
@@ -184,14 +185,14 @@ describe('briefToText', () => {
   const text = briefToText(result);
 
   it('carries the regular-session notice verbatim', () => {
-    // Asserted as an exact sentence rather than a substring: this is the line
-    // that stops a copied verdict from reading as an after-hours call.
-    assert.ok(text.includes('REGULAR-SESSION DATA ONLY. This is not true after-hours pricing.'));
+    // Asserted against the shared constant rather than a retyped string: there
+    // is one wording, in `lib/disclaimers.ts`, and the copied brief has to
+    // match the card exactly or the two drift apart.
+    assert.ok(text.includes(REGULAR_SESSION_NOTICE));
   });
 
-  it('carries the research-only disclaimer', () => {
-    assert.ok(text.includes('not financial advice'));
-    assert.ok(text.includes('cannot place an order'));
+  it('carries the research-only notice verbatim', () => {
+    assert.ok(text.includes(RESEARCH_NOTICE));
   });
 
   it('carries the evidence, not just the conclusion', () => {
@@ -264,8 +265,8 @@ describe('briefToText', () => {
 
   it('never claims a trading capability', () => {
     // A blunt scan for the vocabulary this product must never acquire. The
-    // disclaimer legitimately contains "cannot place an order", so the check is
-    // for the offer rather than the words.
+    // notice legitimately contains the word "trading" in "No trading.", so the
+    // check is for the offer rather than the words.
     for (const phrase of ['Buy now', 'Sell now', 'Place order', 'Connect Bitget', 'Deposit']) {
       assert.equal(text.includes(phrase), false, `brief must not offer "${phrase}"`);
     }
@@ -279,9 +280,12 @@ describe('briefToText — the extended-hours branch', () => {
     const out = briefToText({ ...withExtended, snapshot: { ...withExtended.snapshot, quote } });
 
     assert.ok(out.includes('Extended-hours quote'));
-    assert.equal(out.includes('does not provide an extended-hours price'), false);
-    // The headline notice stays either way: it describes what this product is,
-    // not what one provider returned on one day.
-    assert.ok(out.includes('REGULAR-SESSION DATA ONLY.'));
+    // The session notice describes *this plan's* limit, so it must not outlive
+    // the limit: with a real extended-hours print it would be a false
+    // statement, and it is dropped rather than left standing.
+    assert.equal(out.includes(REGULAR_SESSION_NOTICE), false);
+    // The research-only notice is not conditional — it describes what the
+    // product is, not what one provider returned on one day.
+    assert.ok(out.includes(RESEARCH_NOTICE));
   });
 });

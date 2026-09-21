@@ -317,11 +317,41 @@ describe('GET /api/health — market key diagnostics', () => {
 
   it('never reports the value, its length, or a prefix', async () => {
     process.env.FINNHUB_API_KEY = 'super-secret-value';
-    const raw = JSON.stringify(await readJson(await health(new Request('http://localhost/api/health'))));
+    const body = await readJson(await health(new Request('http://localhost/api/health')));
+    const raw = JSON.stringify(body);
 
     assert.ok(!raw.includes('super-secret-value'));
     assert.ok(!raw.includes('super'));
-    assert.ok(!raw.includes('21'), 'the length must not be inferable from the response');
+
+    // Length must not be inferable. This used to be asserted by scanning the
+    // whole payload for the string "21" — the secret's length — which was a
+    // false pass waiting to happen in both directions: the health route reports
+    // the session clock, so the payload legitimately contains "21" on the 21st
+    // of any month and during the 21:00 ET hour. It failed on exactly those days
+    // and proved nothing on the others.
+    //
+    // The real property is stronger and says so directly: the market-data block
+    // is drawn from a closed set of fields and a closed set of values, so no
+    // part of it can vary with the secret's length or contents.
+    const marketData = body.marketData as Record<string, unknown>;
+    assert.deepEqual(
+      Object.keys(marketData).sort(),
+      ['configured', 'keyStatus', 'keyVariable', 'provider'],
+    );
+    assert.ok(['present', 'empty', 'missing'].includes(marketData.keyStatus as string));
+  });
+
+  it('reports the same market-data block for secrets of different lengths', async () => {
+    // The direct test of "length is not inferable": two very different values
+    // produce an identical block. Keyed on the field set rather than the raw
+    // payload, so the session clock cannot make it flaky.
+    const blockFor = async (value: string) => {
+      process.env.FINNHUB_API_KEY = value;
+      const body = await readJson(await health(new Request('http://localhost/api/health')));
+      return body.marketData;
+    };
+
+    assert.deepEqual(await blockFor('a'), await blockFor('a-much-longer-secret-value-here'));
   });
 
   it('still says configured:false when the key is absent', async () => {

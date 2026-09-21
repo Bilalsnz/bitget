@@ -7,6 +7,7 @@
  */
 
 import type { MarketSnapshot } from '@/lib/types';
+import { REGULAR_SESSION_NOTICE } from '@/lib/disclaimers';
 
 const MONEY = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -88,7 +89,16 @@ export function MarketSnapshotPanel({ snapshot }: { snapshot: MarketSnapshot }) 
         <span className="pill ml-auto font-mono">{quote.ticker}</span>
       </div>
 
-      <p className="mt-1.5 text-xs text-slate-500">
+      {/* The regular-session label, next to the number it qualifies. Conditional
+          on the same flag the rest of the app reads: today's free plan never
+          supplies an extended-hours print, so this always shows — but if a data
+          plan ever did, the notice would be a false statement rather than a
+          missing one, and it disappears instead. */}
+      {quote.afterHoursAvailable ? null : (
+        <p className="mt-1.5 text-xs font-semibold text-verdict-reduce">{REGULAR_SESSION_NOTICE}</p>
+      )}
+
+      <p className="mt-1 text-xs text-slate-500">
         {quote.session.label} · print timestamped {quote.session.etTime} ({quote.session.etDate}) ·{' '}
         {relativeFrom(quote.asOf)}
       </p>
@@ -107,26 +117,6 @@ export function MarketSnapshotPanel({ snapshot }: { snapshot: MarketSnapshot }) 
         an honest label and an implied claim.
       */}
       <p className="mt-3 text-xs leading-relaxed text-slate-400">{quote.movementBasis}</p>
-
-      {/* The explicit after-hours honesty notice. */}
-      <div
-        className={`mt-3 rounded-xl border p-3 ${
-          quote.afterHoursAvailable
-            ? 'border-verdict-buy/40 bg-verdict-buy/[0.07]'
-            : 'border-verdict-reduce/40 bg-verdict-reduce/[0.07]'
-        }`}
-      >
-        <p className="text-xs font-semibold text-slate-200">
-          {quote.afterHoursAvailable
-            ? 'Extended-hours quote available'
-            : 'No separate after-hours quote available'}
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-400">
-          {quote.afterHoursAvailable
-            ? 'The provider returned a distinguishable extended-hours print for this instrument.'
-            : 'This data plan does not provide an extended-hours price for US equities. The price above is the most recent available print — it is not an after-hours quote, and this tool will not present it as one.'}
-        </p>
-      </div>
 
       {/* Anything the data layer flagged as degraded. */}
       {snapshot.notes.length > 0 ? (

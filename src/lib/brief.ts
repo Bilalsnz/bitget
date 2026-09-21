@@ -14,6 +14,7 @@
  */
 
 import { getAsset } from './assets';
+import { REGULAR_SESSION_NOTICE, RESEARCH_NOTICE } from './disclaimers';
 import { EXPOSURES, HOLDING_PERIODS, VERDICTS, type ResearchResult } from './types';
 
 function isPlainRecord(input: unknown): input is Record<string, unknown> {
@@ -127,7 +128,7 @@ export function briefSummary(result: ResearchResult): string {
   return (
     `${request.ticker} research brief (${period?.label ?? request.holdingPeriod}, ${request.risk} risk): ` +
     `${analysis.verdict} at ${analysis.confidence}/100 confidence. ` +
-    `Research only — not financial advice.`
+    RESEARCH_NOTICE
   );
 }
 
@@ -198,20 +199,16 @@ export function briefToText(result: ResearchResult): string {
     `Data source: ${snapshot.dataSource}`,
     `Movement basis: ${quote.movementBasis}`,
     '',
-    // The same sentence the card carries. A brief that leaves the app must not
-    // become the one place the after-hours distinction goes missing.
-    'REGULAR-SESSION DATA ONLY. This is not true after-hours pricing.',
-    quote.afterHoursAvailable
-      ? 'The provider returned a distinguishable extended-hours print for this instrument.'
-      : 'This data plan does not provide an extended-hours price for US equities. The price above is the most recent available print — it is not an after-hours quote, and this tool does not present it as one.',
+    // The same two lines the card carries, in the same words. A brief that
+    // leaves the app must not become the one place these go missing. The
+    // session line is conditional for the same reason it is on the card: it
+    // describes this plan's limits, so it must not outlive them.
+    ...(quote.afterHoursAvailable ? [] : [REGULAR_SESSION_NOTICE]),
+    RESEARCH_NOTICE,
     '',
     'ANALYSIS SOURCE',
     `${result.mode === 'live' ? 'Live AI analysis' : 'Demo analysis'} · ${result.providerLabel}`,
     result.modeReason,
-    '',
-    // Non-negotiable, and it travels with the text rather than staying on the
-    // page. Whoever receives this brief did not see the card's disclaimers.
-    'Research and decision support only — not financial advice, not a recommendation to transact, and not an instruction. AfterHours AI holds no brokerage connection and cannot place an order, move funds, or act on your behalf. Analysis is generated from the snapshot above and can be wrong.',
     '',
     snapshot.headlines.length > 0
       ? `Headlines referenced (${snapshot.dataSource}, shown as published):\n${snapshot.headlines

@@ -92,34 +92,12 @@ export default function Page() {
 
         {/* -------------------------------------------- where Bitget fits in */}
         <BitgetAlignment />
-
-        {/* ---------------------------------------------- what this is not */}
-        <section className="mt-8 rounded-xl2 border border-verdict-avoid/30 bg-verdict-avoid/[0.06] p-4 sm:p-5">
-          <h2 className="text-sm font-bold text-slate-50">What this is not</h2>
-          <ul className="mt-2.5 space-y-2 text-sm leading-relaxed text-slate-300">
-            {[
-              'Not an auto-trader. There is no order execution, no brokerage connection, no wallet, and no way to move money from this page.',
-              'Not financial advice. The verdict is a research stance generated from the snapshot shown, and it can be wrong.',
-              'Not a live after-hours feed. This data plan does not provide extended-hours pricing for US equities, and the app says so on every card rather than implying otherwise.',
-            ].map((item) => (
-              <li key={item} className="flex gap-2.5">
-                <span
-                  aria-hidden="true"
-                  className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-verdict-avoid"
-                />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </section>
       </main>
 
       {/* ------------------------------------------------------------ footer */}
       <footer className="mt-10 border-t border-white/[0.07] pt-5">
-        <p className="text-xs leading-relaxed text-slate-500">
-          AfterHours AI is a research and decision-support tool. Market data is provided by Finnhub
-          on a limited plan and may be delayed. Nothing here is investment advice, an offer, or a
-          solicitation to transact. Verify anything material independently before acting on it.
+        <p className="text-xs text-slate-500">
+          Research only. Not financial advice. No trading.
         </p>
       </footer>
     </div>

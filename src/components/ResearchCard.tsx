@@ -11,11 +11,11 @@
  */
 
 import { getAsset } from '@/lib/assets';
+import { RESEARCH_NOTICE } from '@/lib/disclaimers';
 import { HOLDING_PERIODS, type ResearchResult } from '@/lib/types';
 
 import { BriefActions } from './BriefActions';
 import { BitgetCounterpart } from './BitgetCounterpart';
-import { DataProvenance } from './DataProvenance';
 import { ConfidenceMeter, ExposureBadge, ModeIndicator, VerdictBadge } from './Indicators';
 import { MarketSnapshotPanel } from './MarketSnapshotPanel';
 
@@ -102,17 +102,15 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
         </div>
       </header>
 
-      {/* --------------------------------------------------- data honesty */}
-      {/* Placed before the verdict on purpose. The reader meets the limits of
-          the data before they meet the conclusion drawn from it, not after. */}
-      <DataProvenance snapshot={snapshot} />
-
       {/* ------------------------------------------- verdict and sizing */}
       <div className="grid gap-3 sm:grid-cols-3">
         <VerdictBadge verdict={analysis.verdict} ticker={request.ticker} />
         <ConfidenceMeter confidence={analysis.confidence} />
         <ExposureBadge exposure={analysis.suggestedExposure} />
       </div>
+
+      {/* The research-only notice, next to the verdict it qualifies. */}
+      <p className="text-center text-xs font-medium text-slate-400">{RESEARCH_NOTICE}</p>
 
       {/* ------------------------------------------------- what changed */}
       <section className="panel p-4 sm:p-5">
@@ -143,26 +141,12 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
         </div>
       </div>
 
-      {/* -------------------------------------------- the human decides */}
-      <section className="rounded-xl2 border border-accent-violet/30 bg-gradient-to-br from-accent-violet/[0.12] to-accent-cyan/[0.05] p-4 sm:p-5">
-        <h3 className="text-sm font-bold text-slate-50">The decision stays with you</h3>
-        <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
-          Everything above is a research input, not an instruction. AfterHours AI holds no
-          brokerage connection and cannot place an order, move funds, or act on your behalf —
-          there is nothing on this page that can.
-        </p>
-      </section>
-
       {/* -------------------------------------------------- take it with you */}
       {/* The only controls on this card, and both move text rather than money.
           The copy path serialises through `lib/brief.ts`, so the brief carries
-          the provenance line and the disclaimer wherever it is pasted. */}
+          the notices wherever it is pasted. */}
       <section className="panel p-4 sm:p-5">
         <h3 className="label">Take this brief with you</h3>
-        <p className="mt-2 text-xs leading-relaxed text-slate-400">
-          Copies the full brief as plain text, including the data source, the quote
-          timestamp and the disclaimer.
-        </p>
         <div className="mt-3">
           <BriefActions result={result} />
         </div>
@@ -212,16 +196,6 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
         )}
       </section>
 
-      {/* ------------------------------------------------------ fine print */}
-      <footer className="rounded-xl2 border border-white/[0.07] bg-white/[0.02] p-4">
-        <p className="text-xs leading-relaxed text-slate-500">
-          <span className="font-semibold text-slate-400">Research and decision support only.</span>{' '}
-          This is not financial advice and not a recommendation to transact. Market data is
-          supplied by {snapshot.dataSource} on a delayed/limited plan and may not reflect the most
-          recent trade. Analysis is generated from the snapshot above and can be wrong. Verify
-          anything material against your broker before acting.
-        </p>
-      </footer>
     </article>
   );
 }
