@@ -51,6 +51,36 @@ export const NEWS_BODY = [
 export const MARKET_STATUS_BODY = { exchange: 'US', session: 'regular', holiday: null };
 
 /**
+ * A Bitget v2 spot-tickers response, in the venue's own envelope.
+ *
+ * Shape taken from Bitget's published v2 contract: a `code`/`msg`/`data`
+ * envelope where `data` is an array of price rows, and — the detail that
+ * matters for parsing — **every number is a string**.
+ *
+ * `rTSLA` is the pair here rather than `rNVDA` because the shared `REQUEST`
+ * fixture is AAPL, which deliberately has no counterpart; tests that exercise
+ * this path ask for an instrument that has one.
+ *
+ * The 24h open is what the change is derived from, so the fixture carries an
+ * open that differs from `lastPr` by a known amount: +3.125%.
+ */
+export const TOKENIZED_BODY = {
+  code: '00000',
+  msg: 'success',
+  requestTime: TIMESTAMP * 1000,
+  data: [
+    {
+      symbol: 'rTSLAUSDT',
+      lastPr: '412.50',
+      open24h: '400.00',
+      high24h: '415.00',
+      low24h: '398.00',
+      ts: String(TIMESTAMP * 1000),
+    },
+  ],
+};
+
+/**
  * Wrap a body the way Groq's OpenAI-compatible chat-completions endpoint does.
  *
  * The differences from other chat APIs are the ones that actually reach our
@@ -120,6 +150,18 @@ export type StubOptions = {
   marketStatus?: number;
   /** Raw body for a failing market call, when a specific payload matters. */
   marketErrorBody?: unknown;
+  /**
+   * How the Bitget tokenized-ticker endpoint behaves.
+   *
+   *   - `'ok'`      — a well-formed payload (the default)
+   *   - `'error'`   — a non-200 response
+   *   - `'garbage'` — a 200 carrying something that is not a ticker payload
+   *   - `'wrong'`   — a 200 for a *different* market than the one requested
+   *
+   * `'wrong'` is the one worth having: it is the only failure that would put
+   * an unrelated price under a ticker without looking like an error.
+   */
+  tokenized?: 'ok' | 'error' | 'garbage' | 'wrong';
 };
 
 /**
@@ -180,6 +222,39 @@ export function stubFetch(options: StubOptions = {}): () => void {
 
       const body = options.providerBody ?? groqCompletion(options.modelText ?? modelAnalysis());
       return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    // The tokenized-equity venue. Keyless, and the only upstream here whose
+    // failure is tolerated by design — so the stub models its failure modes
+    // explicitly rather than leaning on the "unexpected fetch" throw below,
+    // which the adapter would swallow and no test would ever see.
+    if (url.includes('api.bitget.com')) {
+      const mode = options.tokenized ?? 'ok';
+      if (mode === 'error') {
+        return new Response(JSON.stringify({ code: '40004', msg: 'bad request' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (mode === 'garbage') {
+        return new Response(JSON.stringify({ code: '00000', msg: 'success', data: 'nope' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (mode === 'wrong') {
+        return new Response(
+          JSON.stringify({
+            ...TOKENIZED_BODY,
+            data: [{ ...TOKENIZED_BODY.data[0], symbol: 'rSOMEONEELSEUSDT' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify(TOKENIZED_BODY), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });

@@ -289,3 +289,83 @@ describe('briefToText — the extended-hours branch', () => {
     assert.ok(out.includes(RESEARCH_NOTICE));
   });
 });
+
+/**
+ * The tokenized counterpart as it appears in text that leaves the app.
+ *
+ * The card can put a figure next to a caption that says what the instrument is;
+ * a copied brief has to carry both with it, because the caption is the only
+ * thing standing between "rTSLA is $412.50" and a reader concluding TSLA is.
+ */
+describe('the tokenized counterpart', () => {
+  function withCounterpart() {
+    const base = sampleResult();
+    return {
+      ...base,
+      request: { ...base.request, ticker: 'TSLA' },
+      snapshot: {
+        ...base.snapshot,
+        tokenized: {
+          symbol: 'rTSLA',
+          pair: 'rTSLAUSDT',
+          price: 412.5,
+          change24hPercent: 3.125,
+          timestamp: 1_760_000_000,
+          asOf: '2026-09-14T18:00:00.000Z',
+          source: 'Bitget',
+        },
+      },
+    };
+  }
+
+  it('carries the price, its venue and its instrument', () => {
+    const out = briefToText(withCounterpart());
+
+    assert.ok(out.includes('TOKENIZED COUNTERPART (Bitget)'));
+    assert.ok(out.includes('rTSLA'));
+    assert.ok(out.includes('$412.50'));
+    assert.ok(out.includes('+3.13%'));
+  });
+
+  it('says what the instrument is, so the figure cannot read as a share price', () => {
+    const out = briefToText(withCounterpart());
+    assert.ok(out.includes('not a share'));
+    // Phrased "for TSLA" rather than "a TSLA …" so the wording holds for any
+    // ticker — an indefinite article hardcoded before a symbol reads as
+    // "not a AAPL after-hours print" the moment a vowel-initial one appears.
+    assert.ok(out.includes('not an after-hours print for TSLA'));
+  });
+
+  it('is omitted entirely when there is no counterpart', () => {
+    // The shared fixture is AAPL, which has none.
+    assert.equal(briefToText(result).includes('TOKENIZED COUNTERPART'), false);
+  });
+
+  it('accepts a stored brief written before the field existed', () => {
+    // Old localStorage entries must still render — requiring the field would
+    // reject every brief a reader had already saved.
+    const payload = broken((draft) => {
+      delete (draft.snapshot as Record<string, unknown>).tokenized;
+    });
+
+    assert.equal(isResearchResult(payload), true);
+  });
+
+  it('rejects a tokenized block whose price is not a number', () => {
+    // The badge formats this value and calls `toFixed` on the change, so a
+    // string here is a thrown render rather than a blank field.
+    const payload = broken((draft) => {
+      (draft.snapshot as Record<string, unknown>).tokenized = {
+        symbol: 'rTSLA',
+        pair: 'rTSLAUSDT',
+        price: '412.50',
+        change24hPercent: 3.1,
+        timestamp: null,
+        asOf: null,
+        source: 'Bitget',
+      };
+    });
+
+    assert.equal(isResearchResult(payload), false);
+  });
+});

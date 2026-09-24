@@ -72,6 +72,24 @@ export function isResearchResult(input: unknown): input is ResearchResult {
         isText(item.datetime),
     );
 
+  // Optional, and validated only when present — briefs saved before this field
+  // existed are still perfectly renderable, so requiring it would reject every
+  // previously stored entry. But when it *is* present it has to be sound: the
+  // badge formats `price` and calls `toFixed` on `change24hPercent`, and a
+  // string in either would throw inside the render rather than degrade. That is
+  // the localStorage case this guard exists for — the entry was written by some
+  // earlier version of this app, or by whoever opened devtools.
+  const tokenized = snapshot.tokenized;
+  const tokenizedOk =
+    tokenized === undefined ||
+    tokenized === null ||
+    (isPlainRecord(tokenized) &&
+      isText(tokenized.symbol) &&
+      isText(tokenized.pair) &&
+      isNumber(tokenized.price) &&
+      isNullableNumber(tokenized.change24hPercent) &&
+      isText(tokenized.source));
+
   return (
     // request — read for the title, the history row and the brief header.
     isText(request.ticker) &&
@@ -97,6 +115,7 @@ export function isResearchResult(input: unknown): input is ResearchResult {
     isText(snapshot.dataSource) &&
     isTextArray(snapshot.notes) &&
     headlinesOk &&
+    tokenizedOk &&
     // analysis — the verdict and the exposure index into style maps.
     (VERDICTS as readonly string[]).includes(analysis.verdict as string) &&
     isNumber(analysis.confidence) &&
@@ -199,6 +218,22 @@ export function briefToText(result: ResearchResult): string {
     `Data source: ${snapshot.dataSource}`,
     `Movement basis: ${quote.movementBasis}`,
     '',
+    // The tokenized counterpart, when there is one and it answered. Present
+    // only alongside its own labels: the venue, the pair, and a sentence
+    // saying what the instrument is. A figure that travelled into a group chat
+    // without them would read as a price for the *equity*, which is the one
+    // thing it is not.
+    ...(snapshot.tokenized
+      ? [
+          `TOKENIZED COUNTERPART (${snapshot.tokenized.source})`,
+          `${snapshot.tokenized.symbol} · ${money(snapshot.tokenized.price)} · ${signedPercent(
+            snapshot.tokenized.change24hPercent,
+          )} over 24h`,
+          ...(snapshot.tokenized.asOf ? [`Priced: ${snapshot.tokenized.asOf}`] : []),
+          `Separate tokenized instrument tracking ${request.ticker} — not a share, and not an after-hours print for ${request.ticker}.`,
+          '',
+        ]
+      : []),
     // The same two lines the card carries, in the same words. A brief that
     // leaves the app must not become the one place these go missing. The
     // session line is conditional for the same reason it is on the card: it

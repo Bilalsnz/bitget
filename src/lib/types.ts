@@ -92,6 +92,35 @@ export type Headline = {
   datetime: string;
 };
 
+/**
+ * A price for an instrument's tokenized counterpart on a crypto venue.
+ *
+ * Kept as its own type, and never merged into `Quote`, because it is not a
+ * quote for the equity. Different instrument, different venue, different
+ * session rules — collapsing the two into one "price" field is how a tokenized
+ * print ends up labelled as a share price, which is the failure this product
+ * is built to prevent.
+ *
+ * Absent (`null`/`undefined`) for most instruments, and for every instrument
+ * when the venue cannot be reached. Its absence is the normal state.
+ */
+export type TokenizedQuote = {
+  /** The venue's symbol, e.g. `rNVDA`. */
+  symbol: string;
+  /** The traded pair, e.g. `rNVDAUSDT`. */
+  pair: string;
+  /** Last traded price in USDT. */
+  price: number;
+  /** Percent change over 24h, e.g. 1.82 for +1.82%. Null when not supplied. */
+  change24hPercent: number | null;
+  /** Unix seconds (UTC), or null when the venue omitted it. */
+  timestamp: number | null;
+  /** ISO string derived from `timestamp`, or null. */
+  asOf: string | null;
+  /** Which venue served this, e.g. "Bitget". */
+  source: string;
+};
+
 export type MarketSnapshot = {
   quote: Quote;
   /** Recent company headlines, when the provider returned any. */
@@ -105,6 +134,13 @@ export type MarketSnapshot = {
    * and the UI explains that rather than hiding it. Null when unavailable.
    */
   exchangeSession: SessionPhase | null;
+  /**
+   * The tokenized counterpart's price, when the instrument has a verified one
+   * and the venue answered. Optional because both halves can be false, and
+   * because briefs saved before this field existed are still perfectly
+   * renderable without it.
+   */
+  tokenized?: TokenizedQuote | null;
   /** Which provider served the numbers, e.g. "Finnhub". */
   dataSource: string;
   /** True when the numbers came from a synthetic source (never, currently). */

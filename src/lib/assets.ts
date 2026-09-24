@@ -41,10 +41,20 @@ export type Asset = {
    * The tokenized counterpart listed on Bitget, when one could be verified.
    *
    * `symbol` is Bitget's own display form (lowercase `r`, uppercase ticker —
-   * `rNVDA`); `url` is the canonical market page. Absent means unverified.
+   * `rNVDA`); `pair` is the traded market against USDT (`rNVDAUSDT`), which is
+   * what a price request needs; `url` is the canonical market page. Absent
+   * means unverified.
+   *
+   * `pair` is stored rather than built by appending `USDT` to `symbol`,
+   * because a pair assembled by string concatenation is a guess — and a
+   * guessed pair returns *some other market's* price rather than an error,
+   * which is the one failure a reader could not detect. Each `pair` here was
+   * read from the market URL recorded beside it, and `bitget.test.ts` asserts
+   * the two still agree.
    */
   bitget?: {
     symbol: string;
+    pair: string;
     url: string;
   };
 };
@@ -63,7 +73,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Electric vehicles, energy storage and autonomy.',
     kind: 'equity',
     sector: 'Automotive',
-    bitget: { symbol: 'rTSLA', url: 'https://www.bitget.com/spot/rTSLAUSDT' },
+    bitget: { symbol: 'rTSLA', pair: 'rTSLAUSDT', url: 'https://www.bitget.com/spot/rTSLAUSDT' },
   },
   {
     ticker: 'NVDA',
@@ -71,7 +81,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Accelerated computing and AI data-centre silicon.',
     kind: 'equity',
     sector: 'Semiconductors',
-    bitget: { symbol: 'rNVDA', url: 'https://www.bitget.com/spot/rNVDAUSDT' },
+    bitget: { symbol: 'rNVDA', pair: 'rNVDAUSDT', url: 'https://www.bitget.com/spot/rNVDAUSDT' },
   },
   {
     ticker: 'MSFT',
@@ -79,7 +89,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Cloud infrastructure, productivity software and AI platforms.',
     kind: 'equity',
     sector: 'Technology',
-    bitget: { symbol: 'rMSFT', url: 'https://www.bitget.com/spot/rMSFTUSDT' },
+    bitget: { symbol: 'rMSFT', pair: 'rMSFTUSDT', url: 'https://www.bitget.com/spot/rMSFTUSDT' },
   },
   {
     ticker: 'AMZN',
@@ -87,7 +97,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'E-commerce, logistics and AWS cloud computing.',
     kind: 'equity',
     sector: 'Consumer Discretionary',
-    bitget: { symbol: 'rAMZN', url: 'https://www.bitget.com/spot/rAMZNUSDT' },
+    bitget: { symbol: 'rAMZN', pair: 'rAMZNUSDT', url: 'https://www.bitget.com/spot/rAMZNUSDT' },
   },
   {
     ticker: 'META',
@@ -95,7 +105,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Social platforms and digital advertising.',
     kind: 'equity',
     sector: 'Communication Services',
-    bitget: { symbol: 'rMETA', url: 'https://www.bitget.com/spot/rMETAUSDT' },
+    bitget: { symbol: 'rMETA', pair: 'rMETAUSDT', url: 'https://www.bitget.com/spot/rMETAUSDT' },
   },
   {
     ticker: 'GOOGL',
@@ -103,7 +113,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Search, advertising, cloud and AI research.',
     kind: 'equity',
     sector: 'Communication Services',
-    bitget: { symbol: 'rGOOGL', url: 'https://www.bitget.com/spot/rGOOGLUSDT' },
+    bitget: { symbol: 'rGOOGL', pair: 'rGOOGLUSDT', url: 'https://www.bitget.com/spot/rGOOGLUSDT' },
   },
   {
     ticker: 'NFLX',
@@ -111,7 +121,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Streaming entertainment and content production.',
     kind: 'equity',
     sector: 'Communication Services',
-    bitget: { symbol: 'rNFLX', url: 'https://www.bitget.com/spot/rNFLXUSDT' },
+    bitget: { symbol: 'rNFLX', pair: 'rNFLXUSDT', url: 'https://www.bitget.com/spot/rNFLXUSDT' },
   },
   {
     ticker: 'AMD',
@@ -119,7 +129,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'CPUs, GPUs and data-centre accelerators.',
     kind: 'equity',
     sector: 'Semiconductors',
-    bitget: { symbol: 'rAMD', url: 'https://www.bitget.com/spot/rAMDUSDT' },
+    bitget: { symbol: 'rAMD', pair: 'rAMDUSDT', url: 'https://www.bitget.com/spot/rAMDUSDT' },
   },
   {
     ticker: 'COIN',
@@ -127,7 +137,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Crypto exchange and custody — a high-beta digital-asset proxy.',
     kind: 'equity',
     sector: 'Financials',
-    bitget: { symbol: 'rCOIN', url: 'https://www.bitget.com/spot/rCOINUSDT' },
+    bitget: { symbol: 'rCOIN', pair: 'rCOINUSDT', url: 'https://www.bitget.com/spot/rCOINUSDT' },
   },
   {
     ticker: 'MSTR',
@@ -135,7 +145,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Enterprise software with a large bitcoin treasury position.',
     kind: 'equity',
     sector: 'Technology',
-    bitget: { symbol: 'rMSTR', url: 'https://www.bitget.com/spot/rMSTRUSDT' },
+    bitget: { symbol: 'rMSTR', pair: 'rMSTRUSDT', url: 'https://www.bitget.com/spot/rMSTRUSDT' },
   },
   {
     ticker: 'SPY',
@@ -143,7 +153,7 @@ export const ASSETS: readonly Asset[] = [
     description: 'Broad US large-cap equity index exposure.',
     kind: 'etf',
     sector: 'Index',
-    bitget: { symbol: 'rSPY', url: 'https://www.bitget.com/spot/rSPYUSDT' },
+    bitget: { symbol: 'rSPY', pair: 'rSPYUSDT', url: 'https://www.bitget.com/spot/rSPYUSDT' },
   },
 ] as const;
 

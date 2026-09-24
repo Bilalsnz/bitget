@@ -33,9 +33,11 @@
  * regular-session price as an after-hours move.
  */
 
+import { getAsset } from '../assets';
 import { AppError, toAppError } from '../errors';
+import { fetchTokenizedQuote } from './bitget';
 import { movementBasisFor, sessionFor } from './session';
-import type { Headline, MarketSnapshot, Quote, SessionPhase } from '../types';
+import type { Headline, MarketSnapshot, Quote, SessionPhase, TokenizedQuote } from '../types';
 
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -331,13 +333,26 @@ export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshot>
 
   const quote = await fetchQuote(ticker);
 
-  const [profile, headlines, exchangeSession] = await Promise.all([
+  // The tokenized counterpart is a second, independent source, so it is
+  // fetched alongside the rest rather than after them — a slow crypto venue
+  // must not add its latency to a card that already has its price.
+  //
+  // It is also the only dependency here that is *allowed* to fail silently.
+  // `fetchTokenizedQuote` returns null for every failure, and this desk is
+  // complete without it: an instrument with no verified counterpart, or a
+  // venue that did not answer, simply shows no tokenized price.
+  const counterpart = getAsset(ticker)?.bitget?.pair;
+
+  const [profile, headlines, exchangeSession, tokenized] = await Promise.all([
     fetchProfile(ticker),
     fetchHeadlines(ticker).catch(() => {
       notes.push('Recent headlines were unavailable from the data source for this request.');
       return [] as Headline[];
     }),
     fetchExchangeSession(),
+    counterpart
+      ? fetchTokenizedQuote(counterpart)
+      : Promise.resolve(null as TokenizedQuote | null),
   ]);
 
   if (!quote.afterHoursAvailable) {
@@ -376,6 +391,7 @@ export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshot>
     },
     headlines,
     exchangeSession,
+    tokenized,
     dataSource: DATA_SOURCE,
     synthetic: false,
     notes,

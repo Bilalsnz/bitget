@@ -115,6 +115,27 @@ describe('each counterpart is internally consistent', () => {
     }
   });
 
+  it('stores the traded pair, and it agrees with the symbol and the URL', () => {
+    // `pair` is what a price request sends, so it is the one field here that
+    // reaches a live endpoint. It is stored rather than built by appending
+    // "USDT" to the symbol at the call site, because a pair assembled by string
+    // concatenation is a guess — and a guessed pair comes back as *some other
+    // market's* price rather than as an error, which is the one failure a
+    // reader could not detect. Pinning all three spellings to each other means
+    // a hand-edit to any one of them fails here rather than on the card.
+    for (const asset of ASSETS) {
+      if (!asset.bitget) continue;
+      const { symbol, pair, url } = asset.bitget;
+
+      assert.equal(pair, `${symbol}USDT`, `${asset.ticker}: pair should be symbol + USDT`);
+      assert.equal(
+        new URL(url).pathname,
+        `/spot/${pair}`,
+        `${asset.ticker}: the market page and the pair should name the same market`,
+      );
+    }
+  });
+
   it('links nowhere but bitget.com over https', () => {
     for (const asset of ASSETS) {
       if (!asset.bitget) continue;

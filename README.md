@@ -132,9 +132,12 @@ parameter, so it cannot leak into a URL, a proxy log or a `Referer`. Provider
 error text is logged server-side and never placed in a response body.
 
 **No fabricated Bitget integration.** The app holds no Bitget account, calls no
-Bitget trading API, and reads no Bitget listing feed. Its two Bitget-facing
-surfaces are a panel that states the *rhythm* difference between the two
-markets, and the tokenized counterpart named on each instrument's card.
+Bitget trading API, places no order, and reads no Bitget listing feed. Its three
+Bitget-facing surfaces are a panel that states the *rhythm* difference between
+the two markets, the tokenized counterpart named on each instrument's card, and
+a price for that counterpart read from Bitget's **public** market endpoint —
+which needs no credential and exposes no account. Nothing here is a partnership
+claim, and nothing here can move funds.
 
 The rhythm arithmetic is derived from the same constants the session classifier
 uses (`src/lib/tradingHours.ts`), so it cannot drift out of agreement with the
@@ -155,11 +158,55 @@ project, and Apple is not in the issuer's lineup. It is the single most likely
 place for a plausible wrong answer to enter this app, so `bitget.test.ts` pins
 its absence and fails if someone adds it back.
 
-The badge links out and carries **no price**. The app does not fetch a quote for
-`rNVDA`, compare the two, or know what the tokenized market is doing; a figure
-there would come from nowhere, and a reader would have no way to tell. The badge
-also does not claim the instruments are equivalent — a tokenized equity tracks a
-price, and is not a share.
+The badge links out and carries **no price of its own invention**. Where the
+venue answers, it shows what the tokenized market is trading at — labelled with
+that venue and the age of the quote, and captioned *"tokenized instrument, not a
+share — not NVDA's price, and not an after-hours print for NVDA."* Where the
+venue does not answer, the badge falls back to name-and-link with no figure at
+all. It never carries a number forward from a previous render, and never shows
+one it could not fetch.
+
+**A tokenized price is not a share price, and the two are never merged.** It
+lives in its own `TokenizedQuote` type and its own `snapshot.tokenized` field —
+deliberately not inside `Quote`, because a shared field is how two instruments
+become one "price", and that is the mislabelling this whole product exists to
+prevent. The change is framed by what it is *not*: the desk still cannot see
+extended hours, and this does not give it that. It is a second, different signal
+from a market that happens not to close.
+
+**Why an after-hours product shows it at all.** The desk's central limitation is
+that its data plan cannot price extended hours. Tokenized equities trade 24/7,
+so while the US tape is closed this market is still producing prices. That makes
+it genuinely useful for the question the product asks — as a *different* signal,
+never as a substitute for an after-hours print.
+
+**The 24h change is derived, not read.** The venue publishes a `change24h` field
+whose unit is ambiguous across its own examples — a ratio (`0.0182`) and a
+percentage (`1.82`) are indistinguishable from the value alone, and reading one
+as the other is a 100× error that looks entirely plausible on screen. So the
+change is computed from the 24h open and the last price, two numbers whose
+meaning is not in doubt. When the open is missing, the change is `null` and
+nothing is shown. A blank is smaller than a wrong number.
+
+**The whole integration is optional, and fails to nothing.** It is the only
+upstream here whose failure is tolerated by design: any non-200, any malformed
+payload, any timeout, and any payload naming a *different* market all return
+`null`, which renders as no tokenized price. A crypto venue having a bad day
+cannot take down a card whose actual job is to price a US equity. The failure
+mode is an absent feature, never a wrong number — an asymmetry chosen
+deliberately, because an absent price costs the reader nothing.
+
+**It needs no key.** Bitget's public market endpoint requires no credential, so
+this adds a second real data source to the desk without a second secret to
+manage, leak or rotate. There is no trading API, no account, and no order
+surface anywhere in it.
+
+**What is not verified.** `api.bitget.com` was unreachable from the environment
+this was built in, so the endpoint has never been exercised against a live
+response. The response *shape* comes from Bitget's published v2 contract; the
+*values* in tests are fixtures. That is why every failure path above is
+explicit: an endpoint that turns out to differ returns `null` and the badge
+renders as it did before this feature existed.
 
 
 ---
@@ -202,9 +249,11 @@ src/
 │   ├── request.ts              the input boundary
 │   ├── api.ts                  response helpers
 │   ├── market/
-│   │   ├── finnhub.ts          server-only data adapter
+│   │   ├── finnhub.ts          server-only keyed data adapter
+│   │   ├── bitget.ts           server-only KEYLESS tokenized-equity adapter
 │   │   ├── session.ts          US session + NYSE holiday calendar
-│   │   └── session.test.ts
+│   │   ├── session.test.ts
+│   │   └── bitget.test.ts      the optional source, tested by its failures
 │   ├── ai/
 │   │   ├── analyze.ts          orchestrator: live → validated → demo fallback
 │   │   ├── analyze.test.ts     the pipeline, fetch stubbed at the boundary
@@ -251,13 +300,13 @@ npm run dev        # development server
 npm run build      # production build
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit, strict
-npm test           # node --test, 212 tests
+npm test           # node --test, 230 tests
 npm run check      # typecheck && lint && test
 ```
 
 ## Testing
 
-212 tests cover the places where a bug would be a *correctness* problem rather
+230 tests cover the places where a bug would be a *correctness* problem rather
 than a cosmetic one:
 
 - **`schema.test.ts`** — the validation gate. Model misbehaviour is the threat
