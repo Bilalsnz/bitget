@@ -27,14 +27,19 @@
  *
  * ## The important limit
  *
- * This is a **static, dated list, not an integration.** The app holds no Bitget
- * account, calls no Bitget API, and reads no Bitget listing feed at runtime. A
- * venue can list, delist or rename a tokenized equity at any time, and this page
- * would not know. That is why the panel carries the date it was verified and
- * says so, rather than presenting the mapping as live.
+ * The **mapping** is a static, dated list. A venue can list, delist or rename a
+ * tokenized equity at any time and this page would not know, which is why it
+ * carries the date it was verified.
  *
- * The non-integration notice is the load-bearing part. Every other sentence
- * here is context; that one is the difference between a product and a pretence.
+ * The **price** is not static. Since the desk began pricing the counterparts it
+ * does call a Bitget endpoint — the public spot market endpoint, which needs no
+ * account, no key and no credential of any kind, and returns a last-traded price
+ * for one symbol. So the distinction this panel has to hold is no longer
+ * "integration or not" but *which* integration: public market data, read-only,
+ * versus an account or a trading API, of which there is still none. The two
+ * sentences below say exactly that, and the older blanket claim — "no Bitget
+ * integration" — was retired the moment it stopped being true. A panel whose job
+ * is to be the honest one cannot keep a sentence that a later commit falsified.
  *
  * Server-rendered: this is static copy and ships no JavaScript.
  */
@@ -129,18 +134,34 @@ export function BitgetAlignment() {
           {missing.join(', ')} — no counterpart found. Apple is the one people expect here; it is
           genuinely not offered.
         </p>
-        <p className="mt-2 text-xs text-slate-500">
-          A static list read off exchange data on {VERIFIED_ON}, not a live feed.
+        <p className="mt-2 text-xs leading-relaxed text-slate-400">
+          That mapping is a static list read off exchange data on {VERIFIED_ON}. It is not a live
+          feed, and a venue can delist or rename one at any time without this page knowing. The
+          price beside a counterpart is live — read from Bitget&rsquo;s public market endpoint when
+          a card is built, and simply absent when that endpoint does not answer.
         </p>
       </div>
 
-      {/* -------------------------------------------------- the non-claim */}
+      {/*
+        The non-claim, and the one sentence on this page that must never drift
+        from the facts. It said "No Bitget integration" until the desk began
+        pricing counterparts from Bitget's public endpoint — at which point the
+        app *did* have one, and the sentence became a false statement printed on
+        the panel whose whole purpose is honesty. The trading half of the claim
+        is still true and still the load-bearing part; the integration half is
+        now stated precisely instead of denied. Do not restore the blanket
+        version: an app that reads a venue's prices and says it does not
+        integrate with that venue has taught the reader to distrust every other
+        label on the card, including the ones that are correct.
+      */}
       <div className="mt-4 rounded-xl border border-verdict-reduce/35 bg-verdict-reduce/[0.07] p-3.5">
         <p className="text-xs font-semibold text-slate-100">
-          No Bitget integration. Nothing here can trade.
+          Public market data only. Nothing here can trade.
         </p>
         <p className="mt-1 text-xs leading-relaxed text-slate-300">
-          No Bitget account, no trading API, no way to move funds from this page.
+          No Bitget account, no API key, no trading API, no way to move funds from this page. The
+          tokenized price on a card comes from Bitget&rsquo;s public market endpoint, which requires
+          no credential and accepts no order.
         </p>
       </div>
 

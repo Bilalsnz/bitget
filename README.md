@@ -131,13 +131,21 @@ Finnhub key is sent as an `X-Finnhub-Token` header rather than a query
 parameter, so it cannot leak into a URL, a proxy log or a `Referer`. Provider
 error text is logged server-side and never placed in a response body.
 
-**No fabricated Bitget integration.** The app holds no Bitget account, calls no
-Bitget trading API, places no order, and reads no Bitget listing feed. Its three
-Bitget-facing surfaces are a panel that states the *rhythm* difference between
-the two markets, the tokenized counterpart named on each instrument's card, and
-a price for that counterpart read from Bitget's **public** market endpoint —
-which needs no credential and exposes no account. Nothing here is a partnership
-claim, and nothing here can move funds.
+**No trading integration, and no fabricated one.** The app holds no Bitget
+account, calls no Bitget trading API, places no order, and stores no Bitget
+credential. What it does call is Bitget's **public** market endpoint — a
+keyless, read-only price lookup that exposes no account and accepts no order.
+
+Worth stating precisely, because this README previously claimed the blanket
+version: "no Bitget integration" stopped being true the moment a counterpart
+price appeared on a card, and the app was saying it in the UI at the time. The
+honest claim is not *whether* but *which* — public market data in, nothing out.
+An app that reads a venue's prices while saying it does not integrate with that
+venue has taught its reader to distrust every other label on the card, including
+the correct ones. Its three Bitget-facing surfaces are a panel that states the
+*rhythm* difference between the two markets, the tokenized counterpart named on
+each instrument's card, and the price read for that counterpart. Nothing here is
+a partnership claim, and nothing here can move funds.
 
 The rhythm arithmetic is derived from the same constants the session classifier
 uses (`src/lib/tradingHours.ts`), so it cannot drift out of agreement with the
@@ -149,8 +157,11 @@ rNVDA`), labels it "24/7 on Bitget", and links to that market. Every symbol and
 URL in `src/lib/assets.ts` was read off live exchange listing data — the URL is
 the exchange's own canonical market page, so a wrong ticker cannot arrive via a
 typo or a guess. The panel states the date it was verified and says plainly that
-it is a static list, not a live feed: a venue can list, delist or rename a
-tokenized equity at any time and this page would not know.
+**the mapping** is a static list, not a live feed: a venue can list, delist or
+rename a tokenized equity at any time and this page would not know. The *price*
+is a different thing and is live whenever the venue answers — the mapping is
+dated, the price is not, and the panel now says which is which rather than
+calling both static.
 
 **One instrument deliberately has no counterpart: AAPL.** The mapping everyone
 assumes — `AAPL → rAAPL` — does not exist; that symbol belongs to an unrelated
