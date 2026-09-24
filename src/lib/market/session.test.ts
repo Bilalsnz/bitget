@@ -63,11 +63,27 @@ describe('sessionFor — regular trading day', () => {
     }
   });
 
-  it('classifies 16:00 exactly as after-hours, not regular', () => {
-    // The close is exclusive: the regular session has ended at 16:00:00.
+  it('classifies 16:00 exactly as the regular session, not after-hours', () => {
+    // The closing minute belongs to the regular session.
+    //
+    // This asserted the opposite until 2026-09-24, on the reasoning that the
+    // close is exclusive. It is, on the clock — but the free quote endpoint
+    // stamps the closing auction print at exactly 16:00, so the `<` boundary
+    // meant the day's *closing price* was labelled "After-hours" on every card
+    // opened after the close, beside a notice reading "Regular-session data
+    // only (not live after-hours)". See the note in `session.ts`: a
+    // minute-resolution stamp cannot tell the 16:00:00 cross from a 16:00:30
+    // extended-hours trade, and the two errors are not symmetric — inventing
+    // extended hours is worse than disclaiming them.
     const session = sessionFor(edt(2026, 9, 14, 16, 0));
-    assert.equal(session.phase, 'after-hours');
-    assert.equal(session.marketOpenNow, false);
+    assert.equal(session.phase, 'regular');
+  });
+
+  it('classifies the first minute after the close as after-hours', () => {
+    // The boundary this protects: one minute later is genuinely extended hours
+    // and must still be labelled as such, or the fix above would have swallowed
+    // the whole after-hours session.
+    assert.equal(sessionFor(edt(2026, 9, 14, 16, 1)).phase, 'after-hours');
   });
 
   it('classifies after-hours', () => {
@@ -135,9 +151,12 @@ describe('sessionFor — half days', () => {
     assert.ok(session.label.includes('half day'));
   });
 
-  it('ends the regular session at 13:00 ET', () => {
+  it('ends the regular session after 13:00 ET', () => {
     assert.equal(sessionFor(est(2026, 12, 24, 12, 59)).phase, 'regular');
-    assert.equal(sessionFor(est(2026, 12, 24, 13, 0)).phase, 'after-hours');
+    // 13:00 is the half-day closing print, so it is regular for the same reason
+    // 16:00 is on a full day.
+    assert.equal(sessionFor(est(2026, 12, 24, 13, 0)).phase, 'regular');
+    assert.equal(sessionFor(est(2026, 12, 24, 13, 1)).phase, 'after-hours');
   });
 
   it('treats Black Friday as a half day', () => {
@@ -169,5 +188,16 @@ describe('movementBasisFor', () => {
   it('states the extended-hours basis when the print is post-close', () => {
     const afterHours = sessionFor(edt(2026, 9, 14, 17, 0));
     assert.ok(movementBasisFor(afterHours).includes('after the 16:00 ET close'));
+  });
+
+  it('names the half-day close, not 16:00, on a short session', () => {
+    // Black Friday 2026 closes at 13:00. A basis line reading "after the 16:00
+    // ET close" would be false, and would sit on the same card as a "(half day)"
+    // label contradicting it.
+    const blackFriday = sessionFor(est(2026, 11, 27, 14, 0));
+    const basis = movementBasisFor(blackFriday);
+
+    assert.ok(basis.includes('after the 13:00 ET close'));
+    assert.equal(basis.includes('16:00'), false);
   });
 });

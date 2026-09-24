@@ -111,6 +111,7 @@ describe('AppError', () => {
       'MARKET_RATE_LIMITED',
       'MARKET_BAD_RESPONSE',
       'AI_UNAVAILABLE',
+      'AI_RATE_LIMITED',
       'AI_BAD_RESPONSE',
       'BAD_REQUEST',
       'TIMEOUT',

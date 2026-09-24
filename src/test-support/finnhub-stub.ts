@@ -151,17 +151,30 @@ export type StubOptions = {
   /** Raw body for a failing market call, when a specific payload matters. */
   marketErrorBody?: unknown;
   /**
+   * Unix seconds to stamp the quote with, overriding the fixture's 14:00 EDT.
+   *
+   * Exists so the *session boundary* is testable end to end. The classifier's
+   * unit tests cover `sessionFor` in isolation, but the sentence a reader
+   * actually sees is assembled in `finnhub.ts` from the derived session and the
+   * exchange's own status — and that sentence is where a mislabelled close used
+   * to reach production.
+   */
+  quoteTimestamp?: number;
+  /** What `/stock/market-status` reports for `session`, e.g. 'pre-market'. */
+  exchangeSession?: string;
+  /**
    * How the Bitget tokenized-ticker endpoint behaves.
    *
    *   - `'ok'`      — a well-formed payload (the default)
    *   - `'error'`   — a non-200 response
    *   - `'garbage'` — a 200 carrying something that is not a ticker payload
    *   - `'wrong'`   — a 200 for a *different* market than the one requested
+   *   - `'throw'`   — the fetch itself rejects, as a blocked or slow host does
    *
    * `'wrong'` is the one worth having: it is the only failure that would put
    * an unrelated price under a ticker without looking like an error.
    */
-  tokenized?: 'ok' | 'error' | 'garbage' | 'wrong';
+  tokenized?: 'ok' | 'error' | 'garbage' | 'wrong' | 'throw';
 };
 
 /**
@@ -187,13 +200,17 @@ export function stubFetch(options: StubOptions = {}): () => void {
       }
 
       const body = url.includes('/quote')
-        ? QUOTE_BODY
+        ? options.quoteTimestamp === undefined
+          ? QUOTE_BODY
+          : { ...QUOTE_BODY, t: options.quoteTimestamp }
         : url.includes('/stock/profile2')
           ? PROFILE_BODY
           : url.includes('/company-news')
             ? NEWS_BODY
             : url.includes('/stock/market-status')
-              ? MARKET_STATUS_BODY
+              ? options.exchangeSession === undefined
+                ? MARKET_STATUS_BODY
+                : { ...MARKET_STATUS_BODY, session: options.exchangeSession }
               : {};
 
       return new Response(JSON.stringify(body), {
@@ -244,6 +261,12 @@ export function stubFetch(options: StubOptions = {}): () => void {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
+      }
+      if (mode === 'throw') {
+        // A transport failure: DNS, TLS, a blocked egress rule, or the abort
+        // timer. Modelled as a rejection because that is what the adapter's
+        // catch block actually receives.
+        throw new Error('simulated transport failure');
       }
       if (mode === 'wrong') {
         return new Response(

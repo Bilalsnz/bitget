@@ -273,11 +273,38 @@ export function sessionFor(unixSeconds: number): SessionInfo {
   let phase: SessionPhase;
   if (weekend || holiday) {
     phase = 'closed';
-  } else if (minutes >= REGULAR_OPEN_MIN && minutes < closeMin) {
+  } else if (minutes >= REGULAR_OPEN_MIN && minutes <= closeMin) {
+    // Note `<=`: the closing minute itself belongs to the regular session.
+    //
+    // This was `<` until 2026-09-24, on the reasoning that "the close is
+    // exclusive — the regular session has ended at 16:00:00". That is true of
+    // the clock and false of the data, and the data is what arrives here.
+    //
+    // The free quote endpoint reports the last trade timestamp, and after the
+    // close that timestamp is **16:00** — the closing auction print, which is
+    // the regular-session close, the number everyone means by "the close". So
+    // on any card opened in the evening the app was labelling the day's
+    // *closing price* "After-hours" and printing it beside a notice reading
+    // "Regular-session data only (not live after-hours)". Seen in production:
+    // a chip saying "After-hours · print timestamped 16:00 EDT" under a
+    // pre-market header, with the model's own text correctly calling the same
+    // print regular-session. Three surfaces, two of them wrong.
+    //
+    // That is this product's cardinal sin — calling a regular-session print an
+    // after-hours one — and it was firing on the default view, not in a corner.
+    //
+    // The honest limit is that a minute-resolution timestamp cannot separate
+    // the 16:00:00 closing cross from a 16:00:30 extended-hours trade. Given
+    // that, the classifier must not assert the more alarming of the two. The
+    // errors are not symmetric: calling a closing print "after-hours" invents
+    // extended-hours data this deployment does not have, while calling a
+    // same-minute extended-hours trade "regular" claims the conservative thing
+    // and is already covered by the notice that says extended hours cannot be
+    // seen here. When in doubt, claim less.
     phase = 'regular';
   } else if (minutes >= PRE_OPEN_MIN && minutes < REGULAR_OPEN_MIN) {
     phase = 'pre-market';
-  } else if (minutes >= closeMin && minutes < AFTER_CLOSE_MIN) {
+  } else if (minutes > closeMin && minutes < AFTER_CLOSE_MIN) {
     phase = 'after-hours';
   } else {
     phase = 'closed';
@@ -308,11 +335,15 @@ export function currentSession(now: Date = new Date()): SessionInfo {
  * Kept here (not in the UI) so every surface phrases it identically.
  */
 export function movementBasisFor(session: SessionInfo): string {
+  // Half days close at 13:00, so naming 16:00 there would be a false statement
+  // of exactly the kind this module exists to prevent — and it would sit on the
+  // same card as a "(half day)" label saying otherwise.
+  const closeTime = session.label.includes('half day') ? '13:00' : '16:00';
   switch (session.phase) {
     case 'regular':
       return 'Change versus the previous regular-session close.';
     case 'after-hours':
-      return 'Change versus the previous regular-session close, on a print timestamped after the 16:00 ET close.';
+      return `Change versus the previous regular-session close, on a print timestamped after the ${closeTime} ET close.`;
     case 'pre-market':
       return 'Change versus the previous regular-session close, on a print timestamped before the 09:30 ET open.';
     case 'closed':

@@ -33,6 +33,8 @@ const DEMO_ENGINE_LABEL = 'Deterministic demo engine';
 const DEMO_REASON: Record<ErrorCode, string> = {
   AI_UNAVAILABLE:
     'The analysis engine was unavailable for this request, so this analysis comes from the built-in deterministic engine.',
+  AI_RATE_LIMITED:
+    'The analysis engine is rate-limiting this deployment right now, so this analysis comes from the built-in deterministic engine. This clears within seconds — the market snapshot is unaffected.',
   AI_BAD_RESPONSE:
     'The analysis engine returned an unusable response, so this analysis comes from the built-in deterministic engine.',
   TIMEOUT:

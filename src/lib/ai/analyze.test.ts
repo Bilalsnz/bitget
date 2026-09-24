@@ -328,6 +328,42 @@ describe('runAnalysis — provider transport behaviour', () => {
     assert.equal(result.mode, 'demo');
   });
 
+  it('calls a rate limit a rate limit, not an outage', async () => {
+    // The two used to share a code, so the reader was told the engine "was
+    // unavailable" when in fact it was answering fine and asking us to slow
+    // down. On a free tier that is the most common reason anyone sees the demo
+    // engine at all — and it is the one cause that is transient, expected, and
+    // fixed by waiting. Reporting it as an outage made a working fallback read
+    // as a broken product.
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatus: 429 });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+
+    assert.equal(result.mode, 'demo');
+    assert.ok(
+      result.modeReason.includes('rate-limiting'),
+      `a 429 must be described as rate limiting, got: ${result.modeReason}`,
+    );
+    // And still says which engine actually answered, which is the point of the
+    // whole fallback. Naming the cause must not cost the disclosure.
+    assert.equal(result.providerLabel, 'Deterministic demo engine');
+    // The provider's own words stay server-side, as everywhere else.
+    assert.ok(!JSON.stringify(result).includes('429'));
+  });
+
+  it('still calls a genuine outage an outage', async () => {
+    // The split must not have swallowed the case it was split from.
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    stubWith({ providerStatus: 503 });
+
+    const result = await runAnalysis(REQUEST, await snapshot());
+
+    assert.equal(result.mode, 'demo');
+    assert.ok(result.modeReason.includes('unavailable'));
+    assert.equal(result.modeReason.includes('rate-limiting'), false);
+  });
+
   it('degrades to demo when the provider answers with something that is not JSON', async () => {
     process.env.GROQ_API_KEY = 'test-groq-key';
     restoreFetch = stubFetch();

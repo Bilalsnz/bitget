@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'MARKET_RATE_LIMITED'
   | 'MARKET_BAD_RESPONSE'
   | 'AI_UNAVAILABLE'
+  | 'AI_RATE_LIMITED'
   | 'AI_BAD_RESPONSE'
   | 'BAD_REQUEST'
   | 'TIMEOUT'
@@ -81,6 +82,19 @@ const FRIENDLY: Record<ErrorCode, { message: string; hint?: string; status: numb
     message: 'The analysis engine is temporarily unavailable.',
     hint: 'The market snapshot is still accurate; try the analysis again shortly.',
     status: 502,
+  },
+  /**
+   * Distinct from AI_UNAVAILABLE because it is a different situation with a
+   * different remedy. An outage is not the reader's doing and waiting may not
+   * help; a rate limit is transient, expected on a free tier, and clears in
+   * seconds. Lumping them together produced a message — "the engine was
+   * unavailable" — that was true of both and useful for neither, and made a
+   * deliberate, working fallback look like a fault.
+   */
+  AI_RATE_LIMITED: {
+    message: 'The analysis engine is rate-limiting this deployment right now.',
+    hint: 'This clears within seconds. The market snapshot is still accurate, and the analysis below is complete — just not model-written.',
+    status: 429,
   },
   AI_BAD_RESPONSE: {
     message: 'The analysis engine returned an unusable response.',

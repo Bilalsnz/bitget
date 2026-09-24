@@ -9,6 +9,13 @@
  * Add `?probe=1` to make one real market-data call and confirm the key is
  * actually accepted upstream. This is off by default because it spends a
  * rate-limited request.
+ *
+ * Add `?probe=bitget` to make one real call to Bitget's public market endpoint
+ * and report where it stopped. This exists because the tokenized price is the
+ * one upstream whose *absence* is a normal outcome — by design it fails to
+ * nothing — which means a misconfigured or blocked call is indistinguishable
+ * from a quiet market. Without a probe, "no price on the badge" is a symptom
+ * with six possible causes and no way to tell them apart.
  */
 
 import { errorResponse, jsonResponse } from '@/lib/api';
@@ -22,7 +29,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const probe = new URL(request.url).searchParams.get('probe') === '1';
+    const probeParam = new URL(request.url).searchParams.get('probe');
+    const probe = probeParam === '1';
+    const bitgetProbe = probeParam === 'bitget';
 
     const marketConfigured = hasMarketKey();
     /**
@@ -60,7 +69,17 @@ export async function GET(request: Request): Promise<Response> {
       supportedInstruments: SUPPORTED_TICKERS.length,
     };
 
-    if (probe) {
+    if (bitgetProbe) {
+      // The first instrument in the verified list, so the probe exercises a
+      // pair the app actually shows rather than one invented for the test.
+      const { ASSETS } = await import('@/lib/assets');
+      const { probeTokenizedPair } = await import('@/lib/market/bitget');
+      const pair = ASSETS.find((a) => a.bitget)?.bitget?.pair ?? null;
+
+      body.probe = pair
+        ? { endpoint: 'api.bitget.com/api/v2/spot/market/tickers', pair, ...(await probeTokenizedPair(pair)) }
+        : { attempted: false, reason: 'No instrument in assets.ts carries a verified Bitget pair.' };
+    } else if (probe) {
       if (!marketConfigured) {
         body.probe = {
           attempted: false,

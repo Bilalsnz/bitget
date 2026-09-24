@@ -50,6 +50,7 @@ Check a deployment is wired up correctly with:
 ```
 GET /api/health          # configuration status; booleans and names only
 GET /api/health?probe=1  # also makes one real market-data call
+GET /api/health?probe=bitget  # makes one real tokenized-ticker call, and says where it stopped
 ```
 
 The health route reports *whether* a variable is set and *what it is called*.
@@ -382,6 +383,24 @@ proves what the live endpoint would return today. Because the request cannot be
 made from a test, the code does not assume the live endpoint accepts our
 `json_schema` response format — it handles the refusal explicitly, retrying
 without the schema, and the validator gates the result either way.
+
+**The tokenized-ticker endpoint is in the same position, and needs saying
+plainly.** `api.bitget.com` is unreachable from the environment this was built
+in — it times out there while other hosts answer normally, so it is that host
+rather than the network — and it has therefore **never returned a live response
+to this codebase**. The envelope and field names below come from Bitget's
+published v2 contract; the values in the tests are fixtures. What the code does
+*not* do is assume it is right: every parse fails to `null`, and `null` renders
+as a badge with no figure on it.
+
+That design choice has a cost worth naming: a wrong assumption about the
+response shape looks exactly like a quiet market. Both produce a missing number.
+`GET /api/health?probe=bitget` exists to tell them apart — it makes one real call
+to the endpoint and reports the stage it reached (`transport`, `http`,
+`envelope`, `no-matching-row`, `unusable-price`) plus the HTTP status, or the
+price and row count on success. **Run it first if a badge shows no price**: it
+separates "the venue is unreachable" from "we misread the response", which are
+different problems with different fixes.
 
 ## Licence and disclaimer
 

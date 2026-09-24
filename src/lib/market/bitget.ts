@@ -49,6 +49,40 @@
 
 import type { TokenizedQuote } from '../types';
 
+/**
+ * Where a lookup stopped, for operators only.
+ *
+ * The production contract is `TokenizedQuote | null` and stays that way — the
+ * reader gets a price or nothing, and never a reason. This type exists because
+ * "no price" has six quite different causes and they are indistinguishable from
+ * the outside: the endpoint could be unreachable, blocked by an egress rule,
+ * answering with an error envelope, returning a different symbol, or returning
+ * a price this module refuses. Diagnosing that from a missing number is
+ * guesswork, and the one thing worse than an absent feature is an absent
+ * feature nobody can explain.
+ *
+ * Reported through `/api/health?probe=bitget`. Every field here describes
+ * public market data or a transport outcome; none of it is a credential,
+ * because this module has no credential to leak.
+ */
+export type BitgetProbe =
+  | { ok: true; quote: TokenizedQuote; httpStatus: number; rowCount: number }
+  | { ok: false; stage: BitgetFailureStage; httpStatus: number | null; detail: string };
+
+export type BitgetFailureStage =
+  /** The caller passed something that is not a pair — a bare ticker, say. */
+  | 'rejected-pair'
+  /** fetch() threw: DNS, TLS, timeout, blocked egress. */
+  | 'transport'
+  /** A response arrived, but not a 2xx. */
+  | 'http'
+  /** Body was not the documented `{ code, data[] }` envelope. */
+  | 'envelope'
+  /** Envelope was fine; no row carried this exact symbol. */
+  | 'no-matching-row'
+  /** Row found; `lastPr` was missing, non-numeric or not positive. */
+  | 'unusable-price';
+
 const BITGET_BASE = 'https://api.bitget.com';
 const REQUEST_TIMEOUT_MS = 8_000;
 const DATA_SOURCE = 'Bitget';
@@ -78,10 +112,25 @@ function num(input: unknown): number | null {
  * deployment has no tokenized price for this instrument", not as zero.
  */
 export async function fetchTokenizedQuote(pair: string): Promise<TokenizedQuote | null> {
+  const probe = await probeTokenizedPair(pair);
+  return probe.ok ? probe.quote : null;
+}
+
+/**
+ * The same lookup, reporting where it stopped.
+ *
+ * One implementation behind both entry points on purpose: a probe with its own
+ * copy of the parsing would be able to disagree with the code it is meant to be
+ * diagnosing, which is the failure mode of every second implementation ever
+ * written.
+ */
+export async function probeTokenizedPair(pair: string): Promise<BitgetProbe> {
   // Cheap guard against being handed a ticker by mistake. A pair that looks
   // like a bare equity symbol is a caller bug, and fetching it would price
   // something unrelated.
-  if (!/^r[A-Z0-9]+USDT$/.test(pair)) return null;
+  if (!/^r[A-Z0-9]+USDT$/.test(pair)) {
+    return { ok: false, stage: 'rejected-pair', httpStatus: null, detail: `not a rStock/USDT pair: ${pair}` };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -92,20 +141,51 @@ export async function fetchTokenizedQuote(pair: string): Promise<TokenizedQuote 
       { signal: controller.signal, headers: { accept: 'application/json' }, cache: 'no-store' },
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return {
+        ok: false,
+        stage: 'http',
+        httpStatus: res.status,
+        detail: `HTTP ${res.status} from the tickers endpoint`,
+      };
+    }
 
     const body = (await res.json()) as BitgetEnvelope;
-    if (body?.code !== '00000' || !Array.isArray(body.data)) return null;
+    if (body?.code !== '00000' || !Array.isArray(body.data)) {
+      return {
+        ok: false,
+        stage: 'envelope',
+        httpStatus: res.status,
+        // `code` and `msg` are short, non-sensitive status strings. Truncated
+        // anyway: this is being shown to whoever opens the health route, and an
+        // upstream body is not ours to echo at whatever length it likes.
+        detail: `code=${String(body?.code).slice(0, 40)} msg=${String(body?.msg).slice(0, 80)}`,
+      };
+    }
 
-    // The tickers endpoint is documented to return a single-element array for
-    // a `symbol` filter, but matching on the symbol is safer than trusting the
-    // index: being handed another market's price is the one failure that would
-    // be invisible to the reader.
-    const row = (body.data as Record<string, unknown>[]).find((t) => t?.symbol === pair);
-    if (!row) return null;
+    const rows = body.data as Record<string, unknown>[];
+    const row = rows.find((t) => t?.symbol === pair);
+    if (!row) {
+      return {
+        ok: false,
+        stage: 'no-matching-row',
+        httpStatus: res.status,
+        detail:
+          rows.length === 0
+            ? 'no rows returned for this symbol'
+            : `rows returned but none named ${pair}`,
+      };
+    }
 
     const price = num(row.lastPr);
-    if (price === null || price <= 0) return null;
+    if (price === null || price <= 0) {
+      return {
+        ok: false,
+        stage: 'unusable-price',
+        httpStatus: res.status,
+        detail: `lastPr=${JSON.stringify(row.lastPr).slice(0, 40)}`,
+      };
+    }
 
     // The 24h change is *derived*, not read.
     //
@@ -128,18 +208,28 @@ export async function fetchTokenizedQuote(pair: string): Promise<TokenizedQuote 
     const hasTimestamp = ms !== null && ms > 0;
 
     return {
-      symbol: pair.replace(/USDT$/, ''),
-      pair,
-      price,
-      change24hPercent,
-      timestamp: hasTimestamp ? Math.floor((ms as number) / 1000) : null,
-      asOf: hasTimestamp ? new Date(ms as number).toISOString() : null,
-      source: DATA_SOURCE,
+      ok: true,
+      httpStatus: res.status,
+      rowCount: rows.length,
+      quote: {
+        symbol: pair.replace(/USDT$/, ''),
+        pair,
+        price,
+        change24hPercent,
+        timestamp: hasTimestamp ? Math.floor((ms as number) / 1000) : null,
+        asOf: hasTimestamp ? new Date(ms as number).toISOString() : null,
+        source: DATA_SOURCE,
+      },
     };
-  } catch {
-    // Timeout, DNS failure, TLS error, malformed JSON — all identical here,
-    // and all mean the same thing to the reader: no tokenized price today.
-    return null;
+  } catch (err) {
+    // Timeout, DNS failure, TLS error, blocked egress, malformed JSON — all
+    // identical to the reader, all worth separating for an operator.
+    return {
+      ok: false,
+      stage: 'transport',
+      httpStatus: null,
+      detail: `${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`.slice(0, 200),
+    };
   } finally {
     clearTimeout(timer);
   }

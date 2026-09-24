@@ -74,10 +74,18 @@ describe('the arithmetic agrees with the session classifier', () => {
     assert.equal(sessionFor(at(13, 29)).phase, 'pre-market');
   });
 
-  it('closes the regular session at 16:00 ET, not before', () => {
-    // 15:59 is the last regular minute; 16:00 has already rolled to after-hours.
+  it('ends the regular session after the 16:00 ET closing minute', () => {
+    // 15:59 and 16:00 are both regular; 16:01 has rolled to after-hours.
+    //
+    // 16:00 moved from after-hours to regular on 2026-09-24. The free quote
+    // endpoint stamps the closing auction print at exactly 16:00, so the old
+    // boundary labelled the day's closing price "After-hours" on every card
+    // opened in the evening — the mislabelling this whole module exists to
+    // prevent. See the note in `market/session.ts` for why the two possible
+    // errors are not symmetric.
     assert.equal(sessionFor(at(19, 59)).phase, 'regular');
-    assert.equal(sessionFor(at(20, 0)).phase, 'after-hours');
+    assert.equal(sessionFor(at(20, 0)).phase, 'regular');
+    assert.equal(sessionFor(at(20, 1)).phase, 'after-hours');
   });
 
   it('spans exactly REGULAR_SESSION_MINUTES from open to close', () => {

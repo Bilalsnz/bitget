@@ -176,7 +176,11 @@ export async function requestLiveAnalysis(system: string, user: string): Promise
     throw new AppError('AI_UNAVAILABLE', `The provider refused the configured credential (HTTP ${response.status}).`);
   }
   if (response.status === 429) {
-    throw new AppError('AI_UNAVAILABLE', 'The provider rate limited the request (HTTP 429).');
+    // Its own code, not AI_UNAVAILABLE. A free tier rate-limiting a burst of
+    // analyses is the single most likely reason a reader sees the demo engine,
+    // and it is the one cause that is transient and self-explaining. Reporting
+    // it as "unavailable" made a working fallback read as a broken product.
+    throw new AppError('AI_RATE_LIMITED', 'The provider rate limited the request (HTTP 429).');
   }
   if (response.status < 200 || response.status >= 300) {
     throw new AppError('AI_UNAVAILABLE', `The provider returned HTTP ${response.status}.`);

@@ -22,7 +22,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import { TIMESTAMP, stubFetch } from '@/test-support/finnhub-stub';
-import { fetchTokenizedQuote } from './bitget';
+import { fetchTokenizedQuote, probeTokenizedPair } from './bitget';
 import { getMarketSnapshot } from './finnhub';
 
 let restore: (() => void) | null = null;
@@ -201,5 +201,169 @@ describe('getMarketSnapshot — the tokenized price rides along, or does not', (
     assert.equal(snapshot.quote.price, 190.25);
     assert.equal(snapshot.synthetic, false);
     assert.ok(snapshot.headlines.length > 0, 'the rest of the snapshot is unaffected');
+  });
+});
+
+/**
+ * The probe, which exists so "no price" can be explained.
+ *
+ * `fetchTokenizedQuote` collapses six quite different outcomes into one `null`,
+ * and that is right for the reader — the badge shows a figure or it shows
+ * nothing. But when the figure is missing on a deployment that should have one,
+ * a bare `null` says only that something went wrong, and the candidates range
+ * from "the venue is down" (nobody's fault) to "our parse is wrong about the
+ * response shape" (entirely our fault, and invisible from the outside).
+ *
+ * So each stage is asserted separately here. A probe that reported `null` for
+ * all of them would be no more useful than the thing it is diagnosing.
+ *
+ * This matters more than usual for this adapter, because the endpoint could not
+ * be reached from the environment it was written in. The probe is the only way
+ * to find out whether the response shape matches what this module expects, and
+ * `'ok'` here is the path that has never run against the real venue.
+ */
+describe('probeTokenizedPair — naming the failure', () => {
+  it('reports where the lookup stopped for each transport outcome', async () => {
+    const cases = [
+      { mode: 'error' as const, stage: 'http', httpStatus: 400 },
+      { mode: 'garbage' as const, stage: 'envelope', httpStatus: 200 },
+      { mode: 'wrong' as const, stage: 'no-matching-row', httpStatus: 200 },
+      { mode: 'throw' as const, stage: 'transport', httpStatus: null },
+    ];
+
+    for (const { mode, stage, httpStatus } of cases) {
+      restore = stubFetch({ tokenized: mode });
+      const probe = await probeTokenizedPair(PAIR);
+      restore();
+      restore = null;
+
+      assert.equal(probe.ok, false, `${mode} must not report ok`);
+      if (probe.ok) continue;
+      assert.equal(probe.stage, stage, `${mode} must be attributed to ${stage}`);
+      assert.equal(probe.httpStatus, httpStatus);
+      assert.ok(probe.detail.length > 0, `${mode} must carry a detail an operator can read`);
+    }
+  });
+
+  it('names the row problem when a good envelope carries another market', async () => {
+    // The distinction that earns the probe its keep: `wrong` is a *successful*
+    // response, so "the venue is fine, we did not recognise the symbol" is a
+    // very different conclusion from "the venue is down".
+    restore = stubFetch({ tokenized: 'wrong' });
+    const probe = await probeTokenizedPair(PAIR);
+
+    assert.equal(probe.ok, false);
+    if (probe.ok) return;
+    assert.equal(probe.stage, 'no-matching-row');
+    assert.ok(probe.detail.includes('none named'));
+  });
+
+  it('rejects something that is not a pair, without making a request', async () => {
+    // No stub installed: if this reached the network the test would throw on
+    // "Unexpected fetch", so the assertion doubles as proof nothing was called.
+    const probe = await probeTokenizedPair('NVDA');
+
+    assert.equal(probe.ok, false);
+    if (probe.ok) return;
+    assert.equal(probe.stage, 'rejected-pair');
+  });
+
+  it('reports the price and the row count on success', async () => {
+    restore = stubFetch();
+    const probe = await probeTokenizedPair(PAIR);
+
+    assert.equal(probe.ok, true);
+    if (!probe.ok) return;
+    assert.equal(probe.httpStatus, 200);
+    assert.equal(probe.rowCount, 1);
+    assert.equal(probe.quote.price, 412.5);
+  });
+
+  it('agrees with the production entry point, always', async () => {
+    // The probe and `fetchTokenizedQuote` share one implementation precisely so
+    // they cannot disagree — a probe with its own parsing could report health
+    // while the badge stayed blank, which is the worst possible outcome for a
+    // diagnostic.
+    for (const mode of ['ok', 'error', 'garbage', 'wrong', 'throw'] as const) {
+      restore = stubFetch({ tokenized: mode });
+      const probe = await probeTokenizedPair(PAIR);
+      const quote = await fetchTokenizedQuote(PAIR);
+      restore();
+      restore = null;
+
+      assert.equal(
+        quote === null,
+        !probe.ok,
+        `${mode}: probe said ${probe.ok ? 'ok' : 'failed'} but the adapter returned ${quote === null ? 'null' : 'a quote'}`,
+      );
+    }
+  });
+});
+
+/**
+ * The evening case, end to end: the sentence that reaches the reader.
+ *
+ * This is the production bug of 2026-09-24, reproduced as a test. A card opened
+ * in the evening showed a chip reading "After-hours · print timestamped 16:00
+ * EDT" under a notice reading "Regular-session data only (not live
+ * after-hours)" — because the quote endpoint stamps the closing auction print
+ * at exactly 16:00, and the classifier treated the close as exclusive.
+ *
+ * The classifier's own tests cover `sessionFor` in isolation. These cover the
+ * sentence `finnhub.ts` assembles from the derived session *and* the exchange's
+ * own status, which is the thing a reader actually reads and the only place the
+ * contradiction was visible. A unit test on the classifier alone would have
+ * passed while the card contradicted itself.
+ */
+describe('a card built after the close', () => {
+  /** 16:00 ET on Monday 2026-09-14, during EDT (UTC−4). */
+  const CLOSING_PRINT = Math.floor(Date.UTC(2026, 8, 14, 20, 0) / 1000);
+
+  // These tests need a configured market key, and leaving one set would make
+  // later tests depend on declaration order. Cleaned up rather than assumed,
+  // because "it happens to be last in the file" is not a property anyone
+  // maintains on purpose.
+  afterEach(() => {
+    delete process.env.FINNHUB_API_KEY;
+  });
+
+  it('calls the closing print the regular session, not after-hours', async () => {
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: CLOSING_PRINT, exchangeSession: 'after-hours' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    assert.equal(snapshot.quote.session.phase, 'regular');
+    assert.equal(snapshot.quote.session.label, 'Regular session');
+    // The exact wording the reader saw, and the exact word that was wrong.
+    assert.equal(snapshot.quote.session.etTime, '16:00 EDT');
+  });
+
+  it('describes the newest available print without contradicting itself', async () => {
+    // The pre-market case from the reported card: the exchange is in
+    // pre-market, the newest print this plan can see is yesterday's close.
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: CLOSING_PRINT, exchangeSession: 'pre-market' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    const note = snapshot.notes.find((n) => n.includes('pre-market session'));
+    assert.ok(note, 'the pre-market note must be present');
+    assert.ok(
+      note.includes('from the regular session (16:00 EDT)'),
+      `the note must name the regular session, got: ${note}`,
+    );
+    // The old wording, which called the close an after-hours print.
+    assert.equal(note.includes('from the after-hours'), false);
+  });
+
+  it('still says post-market when the print really is post-close', async () => {
+    // The fix must not have swallowed genuine extended-hours labelling: a
+    // 16:01 print is after-hours and has to stay that way.
+    const oneMinuteLater = CLOSING_PRINT + 60;
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: oneMinuteLater, exchangeSession: 'after-hours' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    assert.equal(snapshot.quote.session.phase, 'after-hours');
+    assert.ok(snapshot.quote.movementBasis.includes('after the 16:00 ET close'));
   });
 });
