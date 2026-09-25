@@ -61,6 +61,15 @@ export const MARKET_STATUS_BODY = { exchange: 'US', session: 'regular', holiday:
  * fixture is AAPL, which deliberately has no counterpart; tests that exercise
  * this path ask for an instrument that has one.
  *
+ * **`symbol` is uppercase, and that is a correction.** This fixture used to
+ * carry `'rTSLAUSDT'` — the URL spelling — which was an assumption written
+ * here rather than read from the venue. The real endpoint answers in uppercase
+ * (CoinGecko records Bitget's market as `base: "RNVDA", target: "USDT"` beside
+ * a lowercase-`r` `trade_url`), so the adapter queried and matched a spelling
+ * the venue never sends, the badge showed no price in production, and **every
+ * test still passed** — because the fixture agreed with the code's mistake. A
+ * fixture that shares the code's wrong assumption cannot catch it.
+ *
  * The 24h open is what the change is derived from, so the fixture carries an
  * open that differs from `lastPr` by a known amount: +3.125%.
  */
@@ -70,7 +79,7 @@ export const TOKENIZED_BODY = {
   requestTime: TIMESTAMP * 1000,
   data: [
     {
-      symbol: 'rTSLAUSDT',
+      symbol: 'RTSLAUSDT',
       lastPr: '412.50',
       open24h: '400.00',
       high24h: '415.00',
@@ -146,6 +155,14 @@ export type StubOptions = {
   providerBody?: unknown;
   /** Called with each model request body, in order, as it is sent. */
   onProviderRequest?: (body: Record<string, unknown>) => void;
+  /**
+   * Called with the tokenized-ticker URL as it goes out.
+   *
+   * Exists so the *wire spelling* is assertable. This adapter's production bug
+   * was a symbol casing the venue never sends, and no assertion on the returned
+   * quote could have caught it — the request has to be observable for that.
+   */
+  onBitgetRequest?: (url: string) => void;
   /** Make the market data call fail with this HTTP status. */
   marketStatus?: number;
   /** Raw body for a failing market call, when a specific payload matters. */
@@ -175,6 +192,15 @@ export type StubOptions = {
    * an unrelated price under a ticker without looking like an error.
    */
   tokenized?: 'ok' | 'error' | 'garbage' | 'wrong' | 'throw';
+  /**
+   * Overrides the `symbol` in the returned row.
+   *
+   * Belongs to the stub's job rather than to a test's, because "what spelling
+   * the venue puts in its own response" is a property of the venue. Before this
+   * existed the row spelling was fixed at the fixture's, which is how the
+   * fixture's wrong assumption went unchallenged — see `TOKENIZED_BODY`.
+   */
+  tokenizedSymbol?: string;
 };
 
 /**
@@ -249,6 +275,7 @@ export function stubFetch(options: StubOptions = {}): () => void {
     // explicitly rather than leaning on the "unexpected fetch" throw below,
     // which the adapter would swallow and no test would ever see.
     if (url.includes('api.bitget.com')) {
+      options.onBitgetRequest?.(url);
       const mode = options.tokenized ?? 'ok';
       if (mode === 'error') {
         return new Response(JSON.stringify({ code: '40004', msg: 'bad request' }), {
@@ -272,15 +299,22 @@ export function stubFetch(options: StubOptions = {}): () => void {
         return new Response(
           JSON.stringify({
             ...TOKENIZED_BODY,
-            data: [{ ...TOKENIZED_BODY.data[0], symbol: 'rSOMEONEELSEUSDT' }],
+            data: [{ ...TOKENIZED_BODY.data[0], symbol: 'RSOMEONEELSEUSDT' }],
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
       }
-      return new Response(JSON.stringify(TOKENIZED_BODY), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify(
+          options.tokenizedSymbol === undefined
+            ? TOKENIZED_BODY
+            : {
+                ...TOKENIZED_BODY,
+                data: [{ ...TOKENIZED_BODY.data[0], symbol: options.tokenizedSymbol }],
+              },
+        ),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
     }
 
     throw new Error(`Unexpected fetch in test: ${url}`);

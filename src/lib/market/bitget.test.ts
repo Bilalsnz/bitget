@@ -222,6 +222,91 @@ describe('getMarketSnapshot — the tokenized price rides along, or does not', (
  * to find out whether the response shape matches what this module expects, and
  * `'ok'` here is the path that has never run against the real venue.
  */
+/**
+ * The casing bug, which this suite could not see.
+ *
+ * In production the badge showed no price and `?probe=bitget` reported
+ * `no-matching-row`: the venue answers with `RNVDAUSDT`, this module asked for
+ * and matched on `rNVDAUSDT`, and every test here passed — because the fixture
+ * carried the same invented spelling. The suite agreed with the code's
+ * assumption, which is the one thing a fixture must never do.
+ *
+ * So these assert the two things that were invisible before: the spelling that
+ * goes out on the wire, and that the returned row is matched regardless of how
+ * the venue spells it. Both need `onBitgetRequest` — an assertion on the parsed
+ * quote cannot see a wrong request, because a wrong request parses to nothing.
+ */
+describe('the venue spells it in uppercase, and the request must say so', () => {
+  it('queries the uppercase symbol, not the URL spelling', async () => {
+    // The canonical pair is the URL form, lowercase `r` — that is what a reader
+    // taps and what the badge displays. The API form is not the same string.
+    const sent: string[] = [];
+    restore = stubFetch({ onBitgetRequest: (url) => sent.push(url) });
+
+    await fetchTokenizedQuote(PAIR);
+
+    assert.equal(sent.length, 1, 'exactly one upstream request');
+    assert.ok(
+      sent[0].includes('symbol=RTSLAUSDT'),
+      `the request must carry the venue's uppercase symbol, got: ${sent[0]}`,
+    );
+    assert.equal(
+      sent[0].includes('symbol=rTSLAUSDT'),
+      false,
+      'the lowercase-r form is the URL spelling and is not what this endpoint matches on',
+    );
+  });
+
+  it('still reports the canonical pair and display symbol', async () => {
+    // The casing fix must not leak into what a reader sees. `RTSLA` is not the
+    // instrument's name on this desk; `rTSLA` is, and it is what the market URL
+    // beside it uses.
+    restore = stubFetch();
+
+    const quote = await fetchTokenizedQuote(PAIR);
+
+    assert.equal(quote?.pair, 'rTSLAUSDT');
+    assert.equal(quote?.symbol, 'rTSLA');
+  });
+
+  it('matches the row even if the venue answers in another casing', async () => {
+    // The evidence says uppercase, and uppercase is what we send. But a second
+    // hardcoded spelling is precisely what failed here, so the comparison is
+    // case-insensitive rather than a swap from one assumption to another.
+    restore = stubFetch({ tokenizedSymbol: 'rtslausdt' });
+
+    const quote = await fetchTokenizedQuote(PAIR);
+
+    assert.equal(quote?.price, 412.5, 'a differently-cased row must still match');
+    // And the reader still sees the canonical forms, not the venue's.
+    assert.equal(quote?.pair, 'rTSLAUSDT');
+    assert.equal(quote?.symbol, 'rTSLA');
+  });
+
+  it('reports the venue spelling and what it saw when nothing matches', async () => {
+    // The diagnostic that would have shortened this bug to one request. The old
+    // failure detail named only what was asked for, so a casing mismatch and a
+    // genuinely absent market produced the same sentence.
+    restore = stubFetch({ tokenized: 'ok' });
+    const ok = await probeTokenizedPair(PAIR);
+    assert.equal(ok.ok, true);
+    if (ok.ok) assert.equal(ok.venueSymbol, 'RTSLAUSDT');
+
+    restore();
+    restore = stubFetch({ tokenized: 'wrong' });
+    const missing = await probeTokenizedPair(PAIR);
+    assert.equal(missing.ok, false);
+    if (!missing.ok) {
+      assert.equal(missing.stage, 'no-matching-row');
+      assert.ok(
+        missing.detail.includes('RSOMEONEELSEUSDT'),
+        `the detail must name what the venue returned, got: ${missing.detail}`,
+      );
+      assert.ok(missing.detail.includes('RTSLAUSDT'), 'and what was asked for');
+    }
+  });
+});
+
 describe('probeTokenizedPair — naming the failure', () => {
   it('reports where the lookup stopped for each transport outcome', async () => {
     const cases = [

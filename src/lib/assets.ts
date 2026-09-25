@@ -51,6 +51,14 @@ export type Asset = {
    * which is the one failure a reader could not detect. Each `pair` here was
    * read from the market URL recorded beside it, and `bitget.test.ts` asserts
    * the two still agree.
+   *
+   * **These are the URL spellings, and they are deliberately not what the API
+   * is asked for.** The venue's tickers endpoint matches on an uppercase
+   * symbol (`RNVDAUSDT`) — CoinGecko records that market as `base: "RNVDA"`
+   * while giving its `trade_url` as the lowercase-`r` page above, so both forms
+   * are attested and they really do differ. The conversion happens in
+   * `market/bitget.ts` at the request boundary. Uppercasing these strings
+   * instead would break the badge and the link, which are what read them.
    */
   bitget?: {
     symbol: string;

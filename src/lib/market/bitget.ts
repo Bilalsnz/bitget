@@ -31,6 +31,34 @@
  * is a *different* signal, not a substitute, which is exactly why the two are
  * labelled separately rather than merged into one "price".
  *
+ * ## Two casings, and they are not interchangeable
+ *
+ * This venue spells the same market two ways, and the difference cost a
+ * production failure:
+ *
+ *   - **The API symbol is uppercase** — `RNVDAUSDT`. This is what the tickers
+ *     endpoint matches rows on, and what CoinGecko records as the market's
+ *     `base` (`base: "RNVDA", target: "USDT"`, `market: bitget`).
+ *   - **The market URL is lowercase-`r`** — `bitget.com/spot/rNVDAUSDT`. The
+ *     same CoinGecko record returns that URL beside the uppercase base, so both
+ *     forms are attested and they genuinely differ.
+ *
+ * The canonical pair in `lib/assets.ts` is the *URL* form, because that is what
+ * a reader sees and taps. The API form is derived here, at the request
+ * boundary, by uppercasing — one place, one reason.
+ *
+ * The bug: this module queried and matched on the canonical form, so a live
+ * response came back as `RNVDAUSDT`, matched nothing, and the badge showed no
+ * price. `?probe=bitget` reported `no-matching-row` on the deployment while
+ * every test passed, because **the fixture encoded the same wrong assumption**
+ * — it carried `symbol: 'rTSLAUSDT'`, invented here rather than read from the
+ * venue. A fixture that agrees with the code's mistake cannot catch it.
+ *
+ * So the match is now case-insensitive rather than exact-uppercase. The
+ * evidence says uppercase, and uppercasing is what we send; but if the venue
+ * ever answers in another casing, a case-insensitive comparison finds the row
+ * where a second hardcoded spelling would quietly miss it again.
+ *
  * ## Failure is the expected case, and it is not an error
  *
  * The endpoint below could not be exercised from the environment this was
@@ -66,7 +94,14 @@ import type { TokenizedQuote } from '../types';
  * because this module has no credential to leak.
  */
 export type BitgetProbe =
-  | { ok: true; quote: TokenizedQuote; httpStatus: number; rowCount: number }
+  | {
+      ok: true;
+      quote: TokenizedQuote;
+      httpStatus: number;
+      rowCount: number;
+      /** The venue's own spelling of the matched row, e.g. `RNVDAUSDT`. */
+      venueSymbol: string | null;
+    }
   | { ok: false; stage: BitgetFailureStage; httpStatus: number | null; detail: string };
 
 export type BitgetFailureStage =
@@ -78,7 +113,13 @@ export type BitgetFailureStage =
   | 'http'
   /** Body was not the documented `{ code, data[] }` envelope. */
   | 'envelope'
-  /** Envelope was fine; no row carried this exact symbol. */
+  /**
+   * Envelope was fine; no row matched this symbol, compared case-insensitively.
+   *
+   * The comparison being case-insensitive matters: this stage is what a casing
+   * mismatch reported as before the venue's uppercase spelling was known, and
+   * it was indistinguishable from a genuinely absent market.
+   */
   | 'no-matching-row'
   /** Row found; `lastPr` was missing, non-numeric or not positive. */
   | 'unusable-price';
@@ -128,16 +169,26 @@ export async function probeTokenizedPair(pair: string): Promise<BitgetProbe> {
   // Cheap guard against being handed a ticker by mistake. A pair that looks
   // like a bare equity symbol is a caller bug, and fetching it would price
   // something unrelated.
-  if (!/^r[A-Z0-9]+USDT$/.test(pair)) {
+  //
+  // Case-insensitive, because this guard is about *shape* — does it look like
+  // an rStock pair at all — and not about which of the venue's two spellings
+  // arrived. It still rejects `NVDA`, `rNVDA` and `rNVDAUSDC`, which are the
+  // cases that would fetch some other market's price.
+  if (!/^r[A-Z0-9]+USDT$/i.test(pair)) {
     return { ok: false, stage: 'rejected-pair', httpStatus: null, detail: `not a rStock/USDT pair: ${pair}` };
   }
+
+  // The venue matches on the uppercase symbol; the canonical pair is the URL
+  // form. See the header — these differ, and assuming otherwise blanked the
+  // badge in production.
+  const apiSymbol = pair.toUpperCase();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const res = await fetch(
-      `${BITGET_BASE}/api/v2/spot/market/tickers?symbol=${encodeURIComponent(pair)}`,
+      `${BITGET_BASE}/api/v2/spot/market/tickers?symbol=${encodeURIComponent(apiSymbol)}`,
       { signal: controller.signal, headers: { accept: 'application/json' }, cache: 'no-store' },
     );
 
@@ -164,16 +215,31 @@ export async function probeTokenizedPair(pair: string): Promise<BitgetProbe> {
     }
 
     const rows = body.data as Record<string, unknown>[];
-    const row = rows.find((t) => t?.symbol === pair);
+    // Case-insensitive on purpose. The evidence says the venue answers in
+    // uppercase and that is what we send, but a second hardcoded spelling is
+    // exactly what failed here — see the header.
+    const row = rows.find(
+      (t) => typeof t?.symbol === 'string' && t.symbol.toUpperCase() === apiSymbol,
+    );
     if (!row) {
       return {
         ok: false,
         stage: 'no-matching-row',
         httpStatus: res.status,
+        // Names what was asked for *and* what came back. The first version
+        // reported only the former, which is why a casing mismatch was
+        // indistinguishable from a genuinely absent market for as long as it
+        // was — the one fact that would have identified it was the one fact
+        // not printed. Symbols are public market data; sampled and truncated,
+        // because an upstream body is not ours to echo at whatever length it
+        // likes.
         detail:
           rows.length === 0
-            ? 'no rows returned for this symbol'
-            : `rows returned but none named ${pair}`,
+            ? `no rows returned for ${apiSymbol}`
+            : `rows returned but none named ${apiSymbol}; venue symbols seen: ${rows
+                .slice(0, 3)
+                .map((t) => JSON.stringify(t?.symbol).slice(0, 30))
+                .join(', ')}`,
       };
     }
 
@@ -211,6 +277,11 @@ export async function probeTokenizedPair(pair: string): Promise<BitgetProbe> {
       ok: true,
       httpStatus: res.status,
       rowCount: rows.length,
+      // What the venue itself calls this market, as it appeared in the matched
+      // row. Reported because the two spellings differ here, and a probe that
+      // withheld the venue's own would be unable to diagnose the mismatch that
+      // produced this code.
+      venueSymbol: typeof row.symbol === 'string' ? row.symbol : null,
       quote: {
         symbol: pair.replace(/USDT$/, ''),
         pair,

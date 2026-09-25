@@ -263,6 +263,15 @@ response. The response *shape* comes from Bitget's published v2 contract; the
 explicit: an endpoint that turns out to differ returns `null` and the badge
 renders as it did before this feature existed.
 
+**One assumption did turn out to be wrong**, and it is the case study for why
+"the tests pass" and "the assumption is right" are different claims. This
+adapter asked the tickers endpoint for `rNVDAUSDT` — the market *URL's*
+spelling — while the endpoint matches on `RNVDAUSDT`. The request returned a
+well-formed payload naming `RNVDAUSDT`, matched nothing, and rendered no badge,
+while the suite stayed green, because the fixture had been written with the same
+lowercase `r` rather than read from the venue. The fix and the tests that now
+cover it are under "What the tests do not cover" near the end of this file.
+
 
 ---
 
@@ -398,6 +407,14 @@ than a cosmetic one:
   actually verified — so adding one is a deliberate edit to the test, not a diff
   that slips through. It also asserts that AAPL has *no* counterpart, pinning the
   most likely plausible-wrong answer in the file.
+  The failure paths carry most of the weight — a payload for another market is a
+  *successful* response holding a plausible price, so the tests pin that it ends
+  as no badge rather than a wrong number. Two newer cases assert what no
+  assertion on the parsed quote could: the **symbol spelling that goes out on
+  the request**, and that a differently-cased response row still matches. Those
+  exist because the venue spells the same market `RNVDAUSDT` in its API and
+  `rNVDAUSDT` in its URLs, and assuming the wrong one blanked the badge in
+  production while every test passed.
 - **`basis.test.ts`** — the tokenized gap against the closing print. Mostly
   about when it *refuses* to compute one: the arithmetic on two real prices is
   trivial, and what can actually go wrong is measuring against the wrong
@@ -420,7 +437,9 @@ than a cosmetic one:
 ### What the tests do not cover
 
 Neither upstream was called live during development, because both need real
-keys.
+keys. The tokenized-ticker endpoint needs no key and was still never reached,
+because that host does not answer from the build environment — which is the
+short version of the story below.
 
 Every market-data assertion runs against a stand-in that speaks the documented
 `/quote`, `/stock/profile2`, `/company-news` and `/stock/market-status` shapes.
@@ -444,14 +463,36 @@ published v2 contract; the values in the tests are fixtures. What the code does
 *not* do is assume it is right: every parse fails to `null`, and `null` renders
 as a badge with no figure on it.
 
+**That fear turned out to be the right one, and it had already happened.** The
+badge showed no price on the deployment while the whole suite stayed green,
+because this adapter queried `rNVDAUSDT` — the spelling of the market *URL* —
+while the tickers endpoint matches on an uppercase symbol, `RNVDAUSDT`. Both
+spellings are real: CoinGecko records that market as `base: "RNVDA"` and gives
+its `trade_url` as the lowercase-`r` page, so they are genuinely different
+strings for the same market. The request now uppercases at the boundary and the
+row match is case-insensitive, while the stored pairs stay canonical because the
+badge and the link read them.
+
+The reason no test caught it is worth more than the fix: **the fixture carried
+the same wrong assumption as the code.** `TOKENIZED_BODY` had `symbol:
+'rTSLAUSDT'` — invented in the test file rather than read from the venue — so
+the suite was checking that the adapter agreed with itself. A fixture that
+shares the code's mistake cannot detect it, and a green run says nothing about
+the assumption they hold in common. The tests now assert the *wire spelling*
+(what symbol actually goes out on the request) and that a differently-cased
+response still matches; neither is visible from the parsed quote, which is why
+neither was covered before.
+
 That design choice has a cost worth naming: a wrong assumption about the
 response shape looks exactly like a quiet market. Both produce a missing number.
 `GET /api/health?probe=bitget` exists to tell them apart — it makes one real call
 to the endpoint and reports the stage it reached (`transport`, `http`,
 `envelope`, `no-matching-row`, `unusable-price`) plus the HTTP status, or the
-price and row count on success. **Run it first if a badge shows no price**: it
-separates "the venue is unreachable" from "we misread the response", which are
-different problems with different fixes.
+price, row count and the venue's own symbol on success. **Run it first if a badge
+shows no price**: it separates "the venue is unreachable" from "we misread the
+response", which are different problems with different fixes. The failure detail
+now names the symbols the venue actually returned as well as the one asked for,
+so a casing mismatch is one request to identify rather than a guess.
 
 ## Licence and disclaimer
 
