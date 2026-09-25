@@ -92,6 +92,39 @@ describe('sessionFor — regular trading day', () => {
     assert.equal(session.extendedHours, true);
   });
 
+  /**
+   * `atRegularClose` — the close specifically, not the whole regular session.
+   *
+   * It exists because "is this print a regular-session print?" and "is this
+   * print *the close*?" are different questions, and one caller needs the
+   * second. A gap measured against a mid-session print is a different quantity
+   * from a gap measured against the close, and nothing about the two numbers on
+   * screen would tell a reader which they were looking at.
+   */
+  it('marks the closing minute, and only the closing minute', () => {
+    assert.equal(sessionFor(edt(2026, 9, 14, 16, 0)).atRegularClose, true);
+    // Both neighbours are important: 15:59 is inside the regular session and is
+    // not the close, and 16:01 is the extended session entirely.
+    assert.equal(sessionFor(edt(2026, 9, 14, 15, 59)).atRegularClose, false);
+    assert.equal(sessionFor(edt(2026, 9, 14, 16, 1)).atRegularClose, false);
+    // Mid-session: regular, but the session went on to print a later price.
+    assert.equal(sessionFor(edt(2026, 9, 14, 14, 0)).atRegularClose, false);
+  });
+
+  it('marks the early close on a half day, not 16:00', () => {
+    // Friday 2026-11-27, the day after Thanksgiving: closes at 13:00 ET.
+    assert.equal(sessionFor(est(2026, 11, 27, 13, 0)).atRegularClose, true);
+    assert.equal(sessionFor(est(2026, 11, 27, 12, 59)).atRegularClose, false);
+    // 13:01 is after the early close, so it is extended hours rather than a
+    // second close — a half day must not leave two minutes marked as "the close".
+    assert.equal(sessionFor(est(2026, 11, 27, 13, 1)).atRegularClose, false);
+  });
+
+  it('never marks a closed day as a close', () => {
+    // A weekend has a 16:00 on the clock and no session at all.
+    // Saturday 2026-09-19.
+    assert.equal(sessionFor(edt(2026, 9, 19, 16, 0)).atRegularClose, false);
+  });
   it('classifies the overnight gap as closed', () => {
     assert.equal(sessionFor(edt(2026, 9, 14, 22, 0)).phase, 'closed');
     assert.equal(sessionFor(edt(2026, 9, 14, 2, 0)).phase, 'closed');

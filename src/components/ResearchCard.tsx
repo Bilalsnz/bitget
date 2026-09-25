@@ -87,7 +87,11 @@ export function ResearchCard({ result }: { result: ResearchResult }) {
             </p>
             {asset?.bitget ? (
               <div className="mt-2.5">
-                <BitgetCounterpart ticker={request.ticker} tokenized={snapshot.tokenized} />
+                <BitgetCounterpart
+                  ticker={request.ticker}
+                  tokenized={snapshot.tokenized}
+                  basis={snapshot.tokenizedBasis}
+                />
               </div>
             ) : null}
           </div>

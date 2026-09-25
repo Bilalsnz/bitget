@@ -49,20 +49,33 @@ const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), 'utf8');
  *   - **Comments.** The comments in `BitgetAlignment.tsx` *quote* the retired
  *     phrasing in order to explain why it was retired, so a naive scan finds
  *     the very words it is looking for and reports live copy that does not
- *     exist. Only block comments are stripped — `//` is left alone because
- *     `https://` is a line comment to a naive stripper and would truncate every
- *     line carrying a URL.
+ *     exist. Block comments go first, which covers the brace-wrapped ones JSX
+ *     uses as well as these.
+ *   - **Line comments**, which are the same problem one line down: the header
+ *     of `basis.ts` discusses after-hours prints at length precisely to explain
+ *     why it refuses to compute one. They are stripped with a `[^:]` guard on
+ *     the `//`, because a naive strip treats `https://` as the start of a
+ *     comment and truncates every line carrying a URL — which is how the first
+ *     attempt at this helper quietly deleted half of `BitgetAlignment.tsx`.
  *   - **Line wrapping.** JSX and Markdown are both wrapped for width, so
  *     "not a live feed" can sit in the file as `not a live\n  feed`. Collapsing
  *     whitespace makes the assertion about the sentence rather than about where
  *     someone happened to break the line.
+ *
+ * What is left is the text a reader ends up seeing, which is the only thing
+ * these guards are entitled to make claims about.
  */
 function visibleCopy(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ');
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+    .replace(/\s+/g, ' ');
 }
 
 const PANEL = visibleCopy(read('src', 'components', 'BitgetAlignment.tsx'));
 const README = visibleCopy(read('README.md'));
+const BASIS = visibleCopy(read('src', 'lib', 'market', 'basis.ts'));
+const COUNTERPART = visibleCopy(read('src', 'components', 'BitgetCounterpart.tsx'));
 
 describe('the Bitget panel states an integration it actually has', () => {
   it('does not deny integrating with Bitget', () => {
@@ -115,5 +128,55 @@ describe('the README does not make the same claim', () => {
 
   it('names the trading prohibition as the thing that is actually absent', () => {
     assert.ok(README.includes('No trading integration, and no fabricated one.'));
+  });
+});
+
+/**
+ * The basis, which is the newest way for a true sentence to become false.
+ *
+ * Comparing a tokenized price against the regular-session close produces a
+ * percentage that is *numerically* indistinguishable from an after-hours move
+ * in the equity — same sign, same rough magnitude, same place on the card. The
+ * only thing separating them is wording. So the wording is what gets pinned
+ * here, and it is pinned on the source rather than by rendering because there
+ * is no renderer to run and because the exact words are the artefact.
+ *
+ * `basis.test.ts` covers the behaviour — that the phrase always names its
+ * reference and never emits extended-hours vocabulary. These assert the same
+ * property one level up, so a rewrite that keeps the tests passing but renames
+ * the concept still trips something.
+ */
+describe('the tokenized basis never borrows the language of an after-hours print', () => {
+  it('contains no extended-hours vocabulary in its code', () => {
+    // Comments are stripped by `visibleCopy`, so the header of `basis.ts` — which
+    // discusses after-hours prints at length in order to explain why it refuses
+    // to compute one — does not count. What must not contain the phrase is any
+    // identifier, literal or branch that could reach a reader.
+    for (const forbidden of ['after-hours', 'after hours', 'post-market']) {
+      assert.equal(
+        BASIS.toLowerCase().includes(forbidden),
+        false,
+        `basis.ts must not use "${forbidden}" in code — a tokenized gap is not an extended-hours move`,
+      );
+    }
+  });
+
+  it('always names the reference it measured against', () => {
+    // "regular-session print" is what makes the number self-describing. Without
+    // it a percentage beside a tokenized price is a claim about the equity.
+    assert.ok(
+      BASIS.includes('regular-session print'),
+      'the basis label must name the regular-session print',
+    );
+  });
+
+  it('keeps the tokenized figure labelled as not the equity, on the card', () => {
+    // Pre-existing copy, re-asserted here because the basis was added to the
+    // same caption and an edit could have displaced it.
+    assert.ok(COUNTERPART.includes('tokenized instrument, not a share'));
+    assert.ok(COUNTERPART.includes('not an after-hours print for'));
+    // And the basis is rendered through the shared phrase, not written inline —
+    // a second wording is a second thing that can drift out of the guard.
+    assert.ok(COUNTERPART.includes('basisPhrase(shown)'));
   });
 });

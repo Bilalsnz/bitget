@@ -35,6 +35,7 @@
 
 import { getAsset } from '../assets';
 import { AppError, toAppError } from '../errors';
+import { tokenizedBasis } from './basis';
 import { fetchTokenizedQuote } from './bitget';
 import { movementBasisFor, sessionFor } from './session';
 import type { Headline, MarketSnapshot, Quote, SessionPhase, TokenizedQuote } from '../types';
@@ -383,15 +384,22 @@ export async function getMarketSnapshot(ticker: string): Promise<MarketSnapshot>
     );
   }
 
+  const assembledQuote: Quote = {
+    ...quote,
+    exchange: profile.exchange ?? null,
+    currency: profile.currency ?? quote.currency,
+  };
+
   return {
-    quote: {
-      ...quote,
-      exchange: profile.exchange ?? null,
-      currency: profile.currency ?? quote.currency,
-    },
+    quote: assembledQuote,
     headlines,
     exchangeSession,
     tokenized,
+    // Derived from the two figures above, and computed here rather than in the
+    // view so it is stored with the brief and reads identically later. Null
+    // whenever either leg is missing or the reference print is not the regular
+    // session — see `basis.ts`.
+    tokenizedBasis: tokenizedBasis(tokenized, assembledQuote),
     dataSource: DATA_SOURCE,
     synthetic: false,
     notes,

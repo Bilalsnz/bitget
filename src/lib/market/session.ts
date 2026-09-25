@@ -320,6 +320,12 @@ export function sessionFor(unixSeconds: number): SessionInfo {
     label: `${PHASE_LABEL[phase]}${halfDayNote}`,
     marketOpenNow: phase === 'regular',
     extendedHours: phase === 'pre-market' || phase === 'after-hours',
+    // The close specifically, not merely "during the regular session". A 16:00
+    // stamp is the closing auction — the minute this classifier claims
+    // conservatively, per the note above — so a print at the close minute is
+    // the day's last regular-session price. Anything earlier in the session is
+    // a print the session went on to supersede.
+    atRegularClose: phase === 'regular' && minutes === closeMin,
     etTime,
     etDate,
   };

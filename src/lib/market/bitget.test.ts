@@ -366,4 +366,55 @@ describe('a card built after the close', () => {
     assert.equal(snapshot.quote.session.phase, 'after-hours');
     assert.ok(snapshot.quote.movementBasis.includes('after the 16:00 ET close'));
   });
+
+  /**
+   * The basis, at the same level and for the same reason as the tests above.
+   *
+   * `basis.test.ts` drives the derivation directly. These drive it through the
+   * real adapter, because the thing that decides whether a basis exists at all
+   * is not the arithmetic — it is what `sessionFor` made of the print the
+   * provider actually returned. A unit test with a hand-built `SessionInfo`
+   * would pass while the assembled snapshot showed nothing.
+   *
+   * The magnitudes here are synthetic and deliberately unrelated: the tokenized
+   * fixture (412.50) and the equity fixture (190.25) were written independently
+   * as plausible-looking values, not as a coherent pair. So these assert on
+   * presence and on the named reference, never on how big the gap is.
+   */
+  it('attaches a basis when the print is the close', async () => {
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: CLOSING_PRINT, exchangeSession: 'after-hours' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    assert.ok(snapshot.tokenized, 'the fixture answers, so there is a tokenized price');
+    assert.ok(snapshot.tokenizedBasis, 'a closing print must produce a basis');
+    assert.equal(snapshot.tokenizedBasis.referenceLabel, '16:00 EDT regular-session print');
+    assert.equal(snapshot.tokenizedBasis.referencePrice, snapshot.quote.price);
+  });
+
+  it('attaches no basis when the print is mid-session, not the close', async () => {
+    // The rule that `atRegularClose` exists for. A 14:00 print is a
+    // regular-session print and a gap against it is a different quantity — so
+    // the snapshot must carry no basis rather than one wearing the close's name.
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: TIMESTAMP, exchangeSession: 'regular' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    assert.equal(snapshot.quote.session.phase, 'regular');
+    assert.equal(snapshot.quote.session.atRegularClose, false);
+    assert.equal(snapshot.tokenizedBasis, null);
+    // And the price is unaffected — only the derived field is withheld.
+    assert.ok(snapshot.tokenized);
+  });
+
+  it('attaches no basis when the venue did not answer', async () => {
+    process.env.FINNHUB_API_KEY = 'test-market-key';
+    restore = stubFetch({ quoteTimestamp: CLOSING_PRINT, tokenized: 'error' });
+    const snapshot = await getMarketSnapshot('TSLA');
+
+    assert.equal(snapshot.tokenized, null);
+    assert.equal(snapshot.tokenizedBasis, null);
+    // The card is still complete without either.
+    assert.equal(snapshot.quote.price, 190.25);
+  });
 });

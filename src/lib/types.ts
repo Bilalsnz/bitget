@@ -42,6 +42,16 @@ export type SessionInfo = {
   marketOpenNow: boolean;
   /** True when the phase is one of the extended-hours windows. */
   extendedHours: boolean;
+  /**
+   * True when this print falls at the regular session's close — the closing
+   * auction, the last price the regular session produces.
+   *
+   * Deliberately not the same as `phase === 'regular'`, which is also true of a
+   * print taken at 14:00. The difference decides whether a number may be
+   * described relative to "the close": a mid-session print is not a close, and
+   * a gap measured against one is a different quantity wearing the same name.
+   */
+  atRegularClose: boolean;
   /** ET wall-clock string for the quote timestamp, e.g. "16:00 EDT". */
   etTime: string;
   /** ET calendar day for the quote timestamp, e.g. "Fri 12 Sep 2026". */
@@ -121,6 +131,42 @@ export type TokenizedQuote = {
   source: string;
 };
 
+/**
+ * How far the tokenized counterpart sits from the regular-session print.
+ *
+ * This is the derived number that makes a tokenized price worth showing. A
+ * price on its own says what a crypto venue thinks an instrument is worth; the
+ * basis says how far that is from the last price the US tape actually printed,
+ * which is the question this product exists to ask. Tokenized equities trade
+ * 24/7 and the tape does not, so while the tape is closed this is a live
+ * market's opinion of the move since the close — the closest thing to an
+ * after-hours read available to a deployment with no extended-hours
+ * entitlement.
+ *
+ * It is emphatically **not** an after-hours move in the equity. Both legs are
+ * real observations, but of different instruments on different venues: a token
+ * on a crypto order book against a share on an exchange's tape. The gap
+ * between two instruments that track the same thing is a real and routinely
+ * quoted market signal — and it is not a print of the equity trading after
+ * hours. No copy may call it one.
+ *
+ * Absent whenever either leg is missing, and whenever the reference print is
+ * not a regular-session print. See `lib/market/basis.ts` for why that second
+ * rule exists.
+ */
+export type TokenizedBasis = {
+  /** Tokenized price minus the reference, in USD/USDT. */
+  absolute: number;
+  /** The same gap as a percent of the reference, e.g. 2.31 for +2.31%. */
+  percent: number;
+  /** Where the tokenized market sits relative to the reference. */
+  position: 'above' | 'below' | 'level';
+  /** The regular-session price the tokenized market is measured against. */
+  referencePrice: number;
+  /** What that reference is, in plain language — names the session and the time. */
+  referenceLabel: string;
+};
+
 export type MarketSnapshot = {
   quote: Quote;
   /** Recent company headlines, when the provider returned any. */
@@ -141,6 +187,13 @@ export type MarketSnapshot = {
    * renderable without it.
    */
   tokenized?: TokenizedQuote | null;
+  /**
+   * How far the tokenized counterpart sits from the regular-session print.
+   *
+   * Absent for the same reasons `tokenized` is, and additionally whenever the
+   * reference print is not a regular-session print — see `lib/market/basis.ts`.
+   */
+  tokenizedBasis?: TokenizedBasis | null;
   /** Which provider served the numbers, e.g. "Finnhub". */
   dataSource: string;
   /** True when the numbers came from a synthetic source (never, currently). */

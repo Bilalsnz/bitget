@@ -201,6 +201,40 @@ so while the US tape is closed this market is still producing prices. That makes
 it genuinely useful for the question the product asks — as a *different* signal,
 never as a substitute for an after-hours print.
 
+**The basis, which is what makes the figure more than decoration.** A price on
+its own says what a crypto venue thinks an instrument is worth. The basis says
+how far that sits from the last price the US tape printed, which is the question
+this product exists to ask. So alongside the tokenized figure the card states the
+gap — *"trading 2.31% above the 16:00 EDT regular-session print"* — computed as
+`tokenized − close`, and as a percentage of **the close** (taking it of the
+tokenized price instead gives a smaller number of the same sign that looks
+entirely plausible and is wrong; `basis.test.ts` pins it).
+
+It is computed once, in the market layer, and stored on the snapshot as
+`tokenizedBasis`, so a saved brief reads the same next week as it did when the
+card was built. The card and the copied brief render it through one shared
+`basisPhrase`, because the phrase *is* the safeguard: a bare percentage next to a
+tokenized price reads as a move in the equity, and a brief travels with none of
+the card's surrounding context.
+
+**The basis is computed against the closing print, or not at all.** The rule is
+`session.atRegularClose` — the closing auction specifically, not merely "a
+regular-session print". A 14:00 print is also a regular-session print, and a gap
+against it measures movement *during* the session: a smaller, differently-caused
+number that would carry the identical label, the identical caption and the
+identical heading. On an after-hours desk a reader would take it for the
+since-the-close move every time. Against a genuine extended-hours print it would
+be worse still — comparing two instruments across two sessions this deployment
+already admits it cannot separate. So rather than relabel per case, the module
+computes nothing. An absent basis costs one line; a mislabelled one is the exact
+failure this product was built to prevent.
+
+Two smaller rules keep it honest. A gap inside half a basis point is `level with`
+rather than a direction, because the two legs are not sampled at the same instant
+and rendering `+0.00% above` claims a precision neither leg has. And the
+direction word carries the sign — `3.00% below`, never `−3.00% below`, which
+states one fact twice and reads as a stutter.
+
 **The 24h change is derived, not read.** The venue publishes a `change24h` field
 whose unit is ambiguous across its own examples — a ratio (`0.0182`) and a
 percentage (`1.82`) are indistinguishable from the value alone, and reading one
@@ -272,6 +306,7 @@ src/
 │   ├── market/
 │   │   ├── finnhub.ts          server-only keyed data adapter
 │   │   ├── bitget.ts           server-only KEYLESS tokenized-equity adapter
+│   │   ├── basis.ts            tokenized price vs the closing print
 │   │   ├── session.ts          US session + NYSE holiday calendar
 │   │   ├── session.test.ts
 │   │   └── bitget.test.ts      the optional source, tested by its failures
@@ -363,6 +398,13 @@ than a cosmetic one:
   actually verified — so adding one is a deliberate edit to the test, not a diff
   that slips through. It also asserts that AAPL has *no* counterpart, pinning the
   most likely plausible-wrong answer in the file.
+- **`basis.test.ts`** — the tokenized gap against the closing print. Mostly
+  about when it *refuses* to compute one: the arithmetic on two real prices is
+  trivial, and what can actually go wrong is measuring against the wrong
+  reference and labelling it as the right one. Its sessions are built through
+  the real `sessionFor`, because a test that hard-coded `phase: 'regular'`
+  would prove the multiplication and nothing about the interaction that decides
+  the outcome — the lesson from the 16:00 bug next door.
 - **`request.test.ts`** — the input boundary, including the distinction between
   a malformed symbol and a well-formed one we do not cover.
 - **`analyze.test.ts`** — the full pipeline, market adapter through mode

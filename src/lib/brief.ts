@@ -15,6 +15,7 @@
 
 import { getAsset } from './assets';
 import { REGULAR_SESSION_NOTICE, RESEARCH_NOTICE } from './disclaimers';
+import { basisPhrase } from './market/basis';
 import { EXPOSURES, HOLDING_PERIODS, VERDICTS, type ResearchResult } from './types';
 
 function isPlainRecord(input: unknown): input is Record<string, unknown> {
@@ -90,6 +91,24 @@ export function isResearchResult(input: unknown): input is ResearchResult {
       isNullableNumber(tokenized.change24hPercent) &&
       isText(tokenized.source));
 
+  // Same optional-when-present contract as `tokenized`, and it needs its own
+  // guard rather than riding on that one: an entry can carry a sound tokenized
+  // quote and a corrupt basis, and the brief formatter reads `percent` and
+  // `referenceLabel` directly. The enum is checked against its real value set
+  // because `position` is interpolated straight into a sentence — a stray value
+  // there would not throw, it would quietly print nonsense in a document whose
+  // whole job is to be trustworthy.
+  const basis = snapshot.tokenizedBasis;
+  const basisOk =
+    basis === undefined ||
+    basis === null ||
+    (isPlainRecord(basis) &&
+      isNumber(basis.absolute) &&
+      isNumber(basis.percent) &&
+      isNumber(basis.referencePrice) &&
+      isText(basis.referenceLabel) &&
+      (basis.position === 'above' || basis.position === 'below' || basis.position === 'level'));
+
   return (
     // request — read for the title, the history row and the brief header.
     isText(request.ticker) &&
@@ -116,6 +135,7 @@ export function isResearchResult(input: unknown): input is ResearchResult {
     isTextArray(snapshot.notes) &&
     headlinesOk &&
     tokenizedOk &&
+    basisOk &&
     // analysis — the verdict and the exposure index into style maps.
     (VERDICTS as readonly string[]).includes(analysis.verdict as string) &&
     isNumber(analysis.confidence) &&
@@ -230,6 +250,12 @@ export function briefToText(result: ResearchResult): string {
             snapshot.tokenized.change24hPercent,
           )} over 24h`,
           ...(snapshot.tokenized.asOf ? [`Priced: ${snapshot.tokenized.asOf}`] : []),
+          // The basis, in the same words the card uses — one implementation,
+          // because a brief travels without the card's context and the phrase
+          // is what keeps the figure from reading as a move in the equity.
+          ...(snapshot.tokenizedBasis
+            ? [`Trading ${basisPhrase(snapshot.tokenizedBasis)}.`]
+            : []),
           `Separate tokenized instrument tracking ${request.ticker} — not a share, and not an after-hours print for ${request.ticker}.`,
           '',
         ]

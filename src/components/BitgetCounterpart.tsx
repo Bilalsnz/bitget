@@ -52,7 +52,8 @@
  */
 
 import { getAsset } from '@/lib/assets';
-import type { TokenizedQuote } from '@/lib/types';
+import { basisPhrase } from '@/lib/market/basis';
+import type { TokenizedBasis, TokenizedQuote } from '@/lib/types';
 
 const NEW_TAB_HINT = 'opens bitget.com in a new tab';
 
@@ -89,9 +90,11 @@ function relativeFrom(iso: string | null): string | null {
 export function BitgetCounterpart({
   ticker,
   tokenized,
+  basis,
 }: {
   ticker: string;
   tokenized?: TokenizedQuote | null;
+  basis?: TokenizedBasis | null;
 }) {
   const asset = getAsset(ticker);
   if (!asset?.bitget) return null;
@@ -107,6 +110,11 @@ export function BitgetCounterpart({
   const changeTone = change === null ? '' : change > 0 ? 'text-pos' : change < 0 ? 'text-neg' : '';
   const freshness = priced ? relativeFrom(priced.asOf) : null;
 
+  // Gated on `priced` for the same reason the price is: a basis computed from
+  // some other market's row would be a real-looking number about the wrong
+  // instrument.
+  const shown = priced ? (basis ?? null) : null;
+
   return (
     <div>
       <a
@@ -118,6 +126,7 @@ export function BitgetCounterpart({
           (priced
             ? ` Currently ${PRICE.format(priced.price)} on that market. This is a separate tokenized instrument, not a share.`
             : '') +
+          (shown ? ` Trading ${basisPhrase(shown)}.` : '') +
           ` ${NEW_TAB_HINT}.`
         }
         className="group inline-flex min-h-[36px] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-accent-cyan/30 bg-accent-cyan/[0.07] px-2.5 py-1.5 transition hover:border-accent-cyan/55 hover:bg-accent-cyan/[0.12]"
@@ -162,8 +171,22 @@ export function BitgetCounterpart({
       {priced ? (
         <p className="mt-1.5 text-[0.7rem] leading-relaxed text-slate-500">
           <span className="text-slate-400">{priced.source}</span>
-          {freshness ? <> · {freshness}</> : null} · tokenized instrument, not a share — not{' '}
-          {ticker}&rsquo;s price, and not an after-hours print for {ticker}.
+          {freshness ? <> · {freshness}</> : null}
+          {/*
+            The basis, and the reason this badge is worth more than a price.
+            It is rendered only when the snapshot carries one, which the market
+            layer guarantees means "the reference print is the regular session".
+            The phrase names that reference every time, so a figure lifted out
+            of this caption still cannot be read as a move in the equity.
+          */}
+          {shown ? (
+            <>
+              {' · '}
+              <span className="text-slate-400">trading {basisPhrase(shown)}</span>
+            </>
+          ) : null}
+          {' '}· tokenized instrument, not a share — not {ticker}&rsquo;s price, and not an
+          after-hours print for {ticker}.
         </p>
       ) : null}
     </div>
