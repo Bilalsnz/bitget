@@ -481,3 +481,65 @@ describe('GET /api/quote', () => {
     assert.equal(res.status, 503);
   });
 });
+
+/**
+ * The health route reports which build is answering.
+ *
+ * Added because "did the push go live?" was being answered by inference, and
+ * Vercel serves the *previous* deployment when a build fails — so a push that
+ * never reached production looks exactly like one that did. These assertions
+ * pin the two states that matter: a platform build names its commit, and a
+ * non-platform run says so rather than reporting a bare null that reads like a
+ * failed lookup.
+ */
+describe('GET /api/health — build provenance', () => {
+  const saved = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it('names the commit, branch and environment on a Vercel build', async () => {
+    process.env.VERCEL_GIT_COMMIT_SHA = 'a142ea81796eed0600d2ca50fe80d32cbb190200';
+    process.env.VERCEL_GIT_COMMIT_REF = 'main';
+    process.env.VERCEL_ENV = 'production';
+
+    const body = (await (await health(new Request('http://localhost/api/health'))).json()) as {
+      build: Record<string, unknown>;
+    };
+
+    // Short form: a full SHA in a JSON blob is noise when the only question is
+    // "is this the commit I just pushed".
+    assert.equal(body.build.commit, 'a142ea8');
+    assert.equal(body.build.branch, 'main');
+    assert.equal(body.build.environment, 'production');
+  });
+
+  it('says it is not a platform build instead of implying a failed lookup', async () => {
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+    delete process.env.VERCEL_GIT_COMMIT_REF;
+    delete process.env.VERCEL_ENV;
+
+    const body = (await (await health(new Request('http://localhost/api/health'))).json()) as {
+      build: Record<string, unknown>;
+    };
+
+    assert.equal(body.build.commit, null);
+    assert.equal(body.build.branch, null);
+    assert.ok(String(body.build.note).includes('Not a Vercel build'));
+  });
+
+  it('never reports a credential, only a commit', async () => {
+    // The route is public and unauthenticated. A SHA of a public repo is fine;
+    // anything that could authenticate is not, and this is the assertion that
+    // fails if someone later adds "just one more diagnostic" to this block.
+    process.env.VERCEL_GIT_COMMIT_SHA = 'a142ea81796eed0600d2ca50fe80d32cbb190200';
+    process.env.GROQ_API_KEY = 'gsk_should_never_appear';
+    process.env.FINNHUB_API_KEY = 'should_never_appear_either';
+
+    const raw = await (await health(new Request('http://localhost/api/health'))).text();
+
+    assert.equal(raw.includes('gsk_should_never_appear'), false);
+    assert.equal(raw.includes('should_never_appear_either'), false);
+  });
+});

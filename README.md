@@ -56,6 +56,15 @@ GET /api/health?probe=bitget  # makes one real tokenized-ticker call, and says w
 The health route reports *whether* a variable is set and *what it is called*.
 It never returns a value, a prefix, or a length.
 
+It also reports **which build is answering** — `build.commit` (short SHA),
+`build.branch` and `build.environment`, read from the variables Vercel supplies
+at build time, and `null` on a local run where they do not exist. That is there
+because Vercel keeps the *previous* deployment serving when a build fails, so
+"my push did not go live" and "my push went live" look identical from the
+browser. Comparing `build.commit` against `origin/main` settles it in one
+request instead of squinting at the UI for a sentence that only the new commit
+contains. No secret is involved: all three values describe a public repository.
+
 ---
 
 ## Honesty rules this project is built to

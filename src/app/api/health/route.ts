@@ -67,6 +67,30 @@ export async function GET(request: Request): Promise<Response> {
           'When no AI credential is configured, when the provider errors or times out, or when its response fails schema validation, analyses are produced by the deterministic demo engine and labelled as such.',
       },
       supportedInstruments: SUPPORTED_TICKERS.length,
+      /**
+       * Which build is actually answering.
+       *
+       * Added because "did my push go live?" kept being answered by inference —
+       * squinting at the UI for a sentence that only exists in the new commit,
+       * and guessing. Vercel keeps the *previous* deployment serving when a
+       * build fails, so a push that never reached production is indistinguish-
+       * able from one that did, from the browser's side.
+       *
+       * All three values are supplied by the platform at build time, all three
+       * describe a public repository that anyone can read, and none of them is
+       * a credential. On a local run they are simply absent, which is itself
+       * the correct answer: this is not a Vercel build.
+       */
+      build: {
+        commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+        branch: process.env.VERCEL_GIT_COMMIT_REF ?? null,
+        environment: process.env.VERCEL_ENV ?? null,
+        // Named explicitly so a null commit is not read as a failed lookup.
+        note:
+          process.env.VERCEL_GIT_COMMIT_SHA === undefined
+            ? 'Not a Vercel build — commit, branch and environment are unset.'
+            : 'Deployed commit. Compare against origin/main to confirm a push reached production.',
+      },
     };
 
     if (bitgetProbe) {
