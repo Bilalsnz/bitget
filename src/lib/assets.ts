@@ -1,5 +1,5 @@
 /**
- * Single source of truth for every instrument AfterHours AI will research.
+ * Single source of truth for every instrument CloseDesk will research.
  *
  * Deliberately a short, curated list. A research desk that claims to cover
  * every ticker on Earth covers none of them well, and the free market-data

@@ -40,7 +40,7 @@ const FRIENDLY: Record<ErrorCode, { message: string; hint?: string; status: numb
   },
   UNSUPPORTED_TICKER: {
     message: 'That instrument is not on the supported list yet.',
-    hint: 'AfterHours AI covers a curated set of liquid US names.',
+    hint: 'CloseDesk covers a curated set of liquid US names.',
     status: 400,
   },
   MISSING_MARKET_KEY: {

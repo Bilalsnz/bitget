@@ -1,5 +1,5 @@
 /**
- * AfterHours AI — the research desk.
+ * CloseDesk — the research desk.
  *
  * A server component: everything static is rendered once on the server, and the
  * only JavaScript shipped is the two client islands (`ResearchDesk` and
@@ -37,13 +37,13 @@ export default function Page() {
               aria-hidden="true"
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent-cyan to-accent-violet text-sm font-black text-ink-950"
             >
-              A
+              C
             </span>
             <div className="leading-tight">
               <h1 className="text-base font-bold tracking-tight text-slate-50">
-                AfterHours{' '}
+                Close
                 <span className="text-gradient bg-gradient-to-r from-accent-cyan to-accent-violet">
-                  AI
+                  Desk
                 </span>
               </h1>
               <p className="text-[0.7rem] text-slate-500">

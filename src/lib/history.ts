@@ -29,6 +29,14 @@ import type { ResearchResult } from './types';
 /**
  * Versioned so a future shape change can be recognised and discarded rather
  * than mis-parsed. A new key is cheaper and safer than a migration.
+ *
+ * **Deliberately still reads `afterhours`, the product's former name.** The key
+ * is invisible to a reader — it never renders, and nothing displays it — so
+ * renaming it to match the rebrand would buy nothing and cost the saved briefs
+ * of anyone who has already used this app: their history would still be sitting
+ * in storage under the old key, unreachable, with no way to tell that it was
+ * lost rather than never written. A name in a string nobody sees is not worth a
+ * silent data loss.
  */
 export const HISTORY_KEY = 'afterhours.briefs.v1';
 

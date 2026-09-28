@@ -3,13 +3,13 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AfterHours AI — Know what moved after the close',
+  title: 'CloseDesk — Know what moved after the close',
   description:
     'An AI research desk for US equities. See what changed after the market close and what to consider doing next. Research and decision support only — never order execution.',
-  applicationName: 'AfterHours AI',
+  applicationName: 'CloseDesk',
   robots: { index: true, follow: true },
   openGraph: {
-    title: 'AfterHours AI',
+    title: 'CloseDesk',
     description:
       'Know what moved after the close. Decide what comes next. Research and decision support only.',
     type: 'website',

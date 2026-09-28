@@ -120,7 +120,7 @@ const RISK_GUIDANCE: Record<RiskStyle, string> = {
 
 export function buildSystemPrompt(): string {
   return [
-    'You are the analyst behind AfterHours AI, a research desk that helps a retail investor answer one question:',
+    'You are the analyst behind CloseDesk, a research desk that helps a retail investor answer one question:',
     '"What changed in the most recent session, and what should I consider doing next?"',
     '',
     'The desk is named for the moment it is read, not for the data it holds. This deployment has no live',

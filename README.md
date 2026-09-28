@@ -1,4 +1,4 @@
-# AfterHours AI
+# CloseDesk
 
 **Know what moved after the close. Decide what comes next.**
 

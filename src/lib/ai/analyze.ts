@@ -125,14 +125,14 @@ export async function runAnalysis(
     }
 
     // Server-side only: the specific rule that failed is developer information.
-    console.error('[afterhours] live analysis failed validation', {
+    console.error('[closedesk] live analysis failed validation', {
       ticker: request.ticker,
       errors: result.errors,
     });
     return demoResult(request, snapshot, reasonFor('AI_BAD_RESPONSE'));
   } catch (err) {
     const appError = toAppError(err, 'AI_UNAVAILABLE');
-    console.error('[afterhours] live analysis failed', {
+    console.error('[closedesk] live analysis failed', {
       ticker: request.ticker,
       keySource,
       code: appError.code,

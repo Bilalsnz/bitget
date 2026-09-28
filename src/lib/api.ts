@@ -25,7 +25,7 @@ export function errorResponse(err: unknown): NextResponse {
   // 5xx and unexpected failures are worth a server-side trail; 4xx from a bad
   // request are normal traffic and would just be noise.
   if (appError.status >= 500) {
-    console.error('[afterhours] request failed', {
+    console.error('[closedesk] request failed', {
       code: appError.code,
       detail: appError.detail,
     });

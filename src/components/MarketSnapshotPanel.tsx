@@ -113,7 +113,7 @@ export function MarketSnapshotPanel({ snapshot }: { snapshot: MarketSnapshot }) 
 
       {/*
         What the percentage is actually measured against. On a product named
-        "AfterHours" this sentence is load-bearing: it is the difference between
+        "CloseDesk" this sentence is load-bearing: it is the difference between
         an honest label and an implied claim.
       */}
       <p className="mt-3 text-xs leading-relaxed text-slate-400">{quote.movementBasis}</p>

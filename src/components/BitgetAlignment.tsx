@@ -6,7 +6,7 @@
  * The brief for this hackathon is a Bitget one, so the app should say plainly
  * where its subject matter meets Bitget's. It does that here — by explaining
  * the *rhythm* difference between the two markets, which is the whole reason a
- * desk named AfterHours exists — and by naming the tokenized counterpart each
+ * desk named CloseDesk exists — and by naming the tokenized counterpart each
  * instrument has on Bitget, on the cards where the instrument appears.
  *
  * ## Why the tickers in `assets.ts` are trustworthy and this code is not clever

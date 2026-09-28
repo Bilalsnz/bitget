@@ -1,8 +1,8 @@
 {
-  "name": "afterhours-ai",
+  "name": "closedesk",
   "version": "1.0.0",
   "private": true,
-  "description": "AfterHours AI — an AI research desk for the hours when traditional markets are closed. Know what moved after the close. Decide what comes next.",
+  "description": "CloseDesk — an AI research desk for the hours when traditional markets are closed. Know what moved after the close. Decide what comes next.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

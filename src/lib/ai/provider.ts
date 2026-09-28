@@ -158,7 +158,7 @@ export async function requestLiveAnalysis(system: string, user: string): Promise
   // does not happen, because the fallback is the same dialect without a schema
   // and the validator below is what actually protects the card.
   if (isSchemaRejection(response.status, text)) {
-    console.error('[afterhours] provider rejected the response schema; retrying in JSON mode', {
+    console.error('[closedesk] provider rejected the response schema; retrying in JSON mode', {
       status: response.status,
     });
     try {

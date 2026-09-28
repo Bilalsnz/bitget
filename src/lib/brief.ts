@@ -215,7 +215,7 @@ export function briefToText(result: ResearchResult): string {
     : 'Price (latest available regular-session print)';
 
   return [
-    `AfterHours AI — research brief`,
+    `CloseDesk — research brief`,
     `${request.ticker}${asset ? ` · ${asset.name}` : ''} · ${period?.label ?? request.holdingPeriod} · ${request.risk} risk`,
     '',
     `VERDICT: ${analysis.verdict} (confidence ${analysis.confidence}/100)`,

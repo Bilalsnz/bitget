@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * AfterHours AI design tokens.
+ * CloseDesk design tokens.
  *
  * The palette is intentionally vivid but the *semantics* are fixed:
  * every verdict and risk level has exactly one hue family, and that hue is
