@@ -16,10 +16,17 @@
  * particular never as NVDA's *after-hours* price — the one mislabelling this
  * whole product is built to prevent (see `lib/market/finnhub.ts`).
  *
- * That is why the price is labelled with the venue and the instrument every
- * time it appears, and why a caption states plainly that the two are different
- * things. It is also why the number is never merged into `Quote` upstream: a
- * shared field is how two instruments become one "price".
+ * That is why the price is labelled with the venue, the age of the quote and
+ * the instrument's own symbol every time it appears. The caption names what the
+ * number *is* — a tokenized instrument's live price on Bitget — and naming it
+ * accurately is what keeps it from being read as the equity's. An earlier,
+ * longer caption did the same job by listing what the number was *not*; the
+ * shorter form was requested, and `lib/disclaimers.ts` records what that
+ * traded away.
+ *
+ * It is also why the number is never merged into `Quote` upstream: a shared
+ * field is how two instruments become one "price", and no amount of caption
+ * repairs that once it has happened.
  *
  * ## Why a tokenized price is worth showing at all
  *
@@ -52,6 +59,7 @@
  */
 
 import { getAsset } from '@/lib/assets';
+import { tokenizedNotice } from '@/lib/disclaimers';
 import { basisPhrase } from '@/lib/market/basis';
 import type { TokenizedBasis, TokenizedQuote } from '@/lib/types';
 
@@ -124,7 +132,7 @@ export function BitgetCounterpart({
         aria-label={
           `${ticker} has a tokenized counterpart on Bitget: ${symbol}, which trades 24/7.` +
           (priced
-            ? ` Currently ${PRICE.format(priced.price)} on that market. This is a separate tokenized instrument, not a share.`
+            ? ` Currently ${PRICE.format(priced.price)} on that market. ${tokenizedNotice(symbol)}.`
             : '') +
           (shown ? ` Trading ${basisPhrase(shown)}.` : '') +
           ` ${NEW_TAB_HINT}.`
@@ -165,8 +173,16 @@ export function BitgetCounterpart({
       {/*
         Shown only alongside a figure, because a figure is the only thing that
         can be mistaken for NVDA's own price. The provenance line names the
-        venue and the instant; the caption says what the instrument is. Both
-        are load-bearing, and neither is decoration.
+        venue and the instant; the closing label says what the instrument is and
+        which market the price came from.
+
+        The label is deliberately short. It was once four times this length,
+        spelling out what the number is *not* — not a share, not NVDA's price,
+        not an after-hours print. What it does now is name what the number *is*,
+        chiefly by naming the instrument's own symbol in brackets, which is the
+        part that keeps it from reading as the ticker above it. `disclaimers.ts`
+        records what that traded away; this comment only records that it was
+        traded deliberately.
       */}
       {priced ? (
         <p className="mt-1.5 text-[0.7rem] leading-relaxed text-slate-500">
@@ -178,6 +194,12 @@ export function BitgetCounterpart({
             layer guarantees means "the reference print is the regular session".
             The phrase names that reference every time, so a figure lifted out
             of this caption still cannot be read as a move in the equity.
+
+            It survives here rather than being folded into the short label
+            above, and the two are not the same kind of sentence: the label
+            describes the instrument, this describes the number. Collapsing
+            them is how a percentage ends up with nothing saying what it was
+            measured against.
           */}
           {shown ? (
             <>
@@ -185,8 +207,7 @@ export function BitgetCounterpart({
               <span className="text-slate-400">trading {basisPhrase(shown)}</span>
             </>
           ) : null}
-          {' '}· tokenized instrument, not a share — not {ticker}&rsquo;s price, and not an
-          after-hours print for {ticker}.
+          {' '}· {tokenizedNotice(symbol)}
         </p>
       ) : null}
     </div>

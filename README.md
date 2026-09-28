@@ -181,11 +181,25 @@ its absence and fails if someone adds it back.
 
 The badge links out and carries **no price of its own invention**. Where the
 venue answers, it shows what the tokenized market is trading at — labelled with
-that venue and the age of the quote, and captioned *"tokenized instrument, not a
-share — not NVDA's price, and not an after-hours print for NVDA."* Where the
-venue does not answer, the badge falls back to name-and-link with no figure at
-all. It never carries a number forward from a previous render, and never shows
-one it could not fetch.
+that venue, the age of the quote, and the instrument's own symbol, and captioned
+*"Tokenized instrument (rNVDA) · Live 24/7 price on Bitget"*. Where the venue
+does not answer, the badge falls back to name-and-link with no figure at all. It
+never carries a number forward from a previous render, and never shows one it
+could not fetch.
+
+That caption is shorter than it used to be, and the shortening was a deliberate
+trade rather than a tidy-up. It previously enumerated what the figure was *not*
+— "not a share", "not NVDA's price", "not an after-hours print for NVDA". Those
+two negations were dropped on request; what is left identifies what the number
+*is* and names the instrument in brackets, which is the part doing the work. The
+label is defined once in `src/lib/disclaimers.ts` and imported by the card and
+the copied brief, so a brief that leaves the app cannot end up with a second,
+drifting wording of the same promise. `claims.test.ts` pins the bracket for
+exactly that reason: remove it and a reader has a number under a ticker with
+nothing marking it as a different instrument.
+
+The distinction itself is unaffected, because it never lived in the caption. It
+lives in the type system and the data layer, and both are unchanged.
 
 **A tokenized price is not a share price, and the two are never merged.** It
 lives in its own `TokenizedQuote` type and its own `snapshot.tokenized` field —

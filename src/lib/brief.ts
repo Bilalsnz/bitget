@@ -14,7 +14,7 @@
  */
 
 import { getAsset } from './assets';
-import { REGULAR_SESSION_NOTICE, RESEARCH_NOTICE } from './disclaimers';
+import { REGULAR_SESSION_NOTICE, RESEARCH_NOTICE, tokenizedNotice } from './disclaimers';
 import { basisPhrase } from './market/basis';
 import { EXPOSURES, HOLDING_PERIODS, VERDICTS, type ResearchResult } from './types';
 
@@ -256,7 +256,11 @@ export function briefToText(result: ResearchResult): string {
           ...(snapshot.tokenizedBasis
             ? [`Trading ${basisPhrase(snapshot.tokenizedBasis)}.`]
             : []),
-          `Separate tokenized instrument tracking ${request.ticker} — not a share, and not an after-hours print for ${request.ticker}.`,
+          // The same words the card uses, imported rather than retyped — a
+          // brief leaves the app with no card around it, so this line is the
+          // only thing standing between the figure and being read as a price
+          // for the equity.
+          tokenizedNotice(snapshot.tokenized.symbol),
           '',
         ]
       : []),

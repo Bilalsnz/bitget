@@ -76,6 +76,8 @@ const PANEL = visibleCopy(read('src', 'components', 'BitgetAlignment.tsx'));
 const README = visibleCopy(read('README.md'));
 const BASIS = visibleCopy(read('src', 'lib', 'market', 'basis.ts'));
 const COUNTERPART = visibleCopy(read('src', 'components', 'BitgetCounterpart.tsx'));
+const DISCLAIMERS = visibleCopy(read('src', 'lib', 'disclaimers.ts'));
+const BRIEF = visibleCopy(read('src', 'lib', 'brief.ts'));
 
 describe('the Bitget panel states an integration it actually has', () => {
   it('does not deny integrating with Bitget', () => {
@@ -173,10 +175,46 @@ describe('the tokenized basis never borrows the language of an after-hours print
   it('keeps the tokenized figure labelled as not the equity, on the card', () => {
     // Pre-existing copy, re-asserted here because the basis was added to the
     // same caption and an edit could have displaced it.
-    assert.ok(COUNTERPART.includes('tokenized instrument, not a share'));
-    assert.ok(COUNTERPART.includes('not an after-hours print for'));
+    //
+    // **This assertion was changed on request, and the change is the point.**
+    // It used to pin "tokenized instrument, not a share" and "not an
+    // after-hours print for" — two explicit negations. Both were removed in
+    // favour of the shorter `tokenizedNotice`, which identifies what the number
+    // *is* (an instrument named in brackets, priced live on Bitget) instead of
+    // enumerating what it is not.
+    //
+    // The guard was rewritten rather than deleted, because the property it
+    // protects did not disappear: the figure must still be labelled as
+    // something other than the equity. What changed is the wording that
+    // carries the property, so the wording that gets pinned changes with it.
+    // The bracket is now the load-bearing part — delete it and a reader has a
+    // number under a ticker with nothing marking it as a different instrument.
+    //
+    // Every earlier guard in this file exists because a sentence stayed true
+    // only by accident. This one is the opposite case: a sentence was
+    // deliberately weakened, which is exactly the kind of edit that ought to
+    // show up in a diff of this file.
+    assert.ok(COUNTERPART.includes('tokenizedNotice(symbol)'));
+    assert.ok(
+      DISCLAIMERS.includes('Tokenized instrument (${symbol})'),
+      'the notice must name the instrument it prices — the parenthesis is what marks it as a different instrument',
+    );
     // And the basis is rendered through the shared phrase, not written inline —
     // a second wording is a second thing that can drift out of the guard.
     assert.ok(COUNTERPART.includes('basisPhrase(shown)'));
+  });
+
+  it('gives the copied brief the same label, not a second wording of it', () => {
+    // The brief leaves the app with no card around it, so its label is the only
+    // thing keeping the figure from reading as a price for the equity. It must
+    // come from the shared constant — a brief with its own paraphrase is the
+    // drift this file exists to catch, and it would drift silently, because a
+    // copied brief is never rendered by anything a test can see.
+    assert.ok(BRIEF.includes('tokenizedNotice(snapshot.tokenized.symbol)'));
+    assert.equal(
+      BRIEF.includes('not a share'),
+      false,
+      'the brief must not carry a second, independent statement of this — import the shared notice',
+    );
   });
 });

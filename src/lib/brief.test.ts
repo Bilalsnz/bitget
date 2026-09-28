@@ -329,11 +329,14 @@ describe('the tokenized counterpart', () => {
 
   it('says what the instrument is, so the figure cannot read as a share price', () => {
     const out = briefToText(withCounterpart());
-    assert.ok(out.includes('not a share'));
-    // Phrased "for TSLA" rather than "a TSLA …" so the wording holds for any
-    // ticker — an indefinite article hardcoded before a symbol reads as
-    // "not a AAPL after-hours print" the moment a vowel-initial one appears.
-    assert.ok(out.includes('not an after-hours print for TSLA'));
+    // The parenthesis is the load-bearing part: it names the instrument being
+    // priced as something other than the ticker above it. The previous wording
+    // spelled out the two negations as well ("not a share", "not an after-hours
+    // print for TSLA"); the shorter form was requested and drops them, so this
+    // assertion moved with it rather than being deleted. See `disclaimers.ts`
+    // for what the trade was and why it was judged acceptable.
+    assert.ok(out.includes('Tokenized instrument (rTSLA)'));
+    assert.ok(out.includes('Live 24/7 price on Bitget'));
   });
 
   it('is omitted entirely when there is no counterpart', () => {
